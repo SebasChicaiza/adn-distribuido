@@ -10,9 +10,14 @@ class HealthResponse(BaseModel):
 class StatusResponse(BaseModel):
     node_info: NodeInfo
     gpu_available: bool = False
+    is_leader: bool = False
+    term: int = 0
 
 class RegisterRequest(BaseModel):
     node_info: NodeInfo
+
+class StateSyncRequest(BaseModel):
+    state_json: str
 
 class JobCreateRequest(BaseModel):
     job_id: str

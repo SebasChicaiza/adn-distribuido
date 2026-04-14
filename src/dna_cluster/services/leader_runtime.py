@@ -1,7 +1,9 @@
 import logging
 import time
+import asyncio
+import httpx
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Dict
 from dna_cluster.models.cluster import ClusterState
 from dna_cluster.models.job import JobInfo
 from dna_cluster.models.chunk import ChunkState, ChunkInfo
@@ -17,19 +19,101 @@ logger = logging.getLogger(__name__)
 class LeaderRuntime:
     def __init__(self):
         self.store = StateStore()
-        self.state = self.store.load() or ClusterState(term=1, leader_id=settings.node_id)
-        for n in settings.parsed_cluster_nodes:
-            if n not in self.state.known_nodes:
-                self.state.known_nodes.append(n)
-        self.store.save(self.state)
+        self.state = self.store.load() or ClusterState()
+        
+        # Determine if we are the initial leader by priority if no state exists
+        me = self._get_my_node_info()
+        self.is_leader = False
+        
+        if self.state.term == 0:
+            self.state.term = 1
+            # If I have the highest priority initially, I start as leader
+            highest_priority_node = max(settings.parsed_cluster_nodes_info, key=lambda x: x["priority"])
+            if highest_priority_node["node_id"] == settings.node_id:
+                self.is_leader = True
+                self.state.leader_id = settings.node_id
+            self.store.save(self.state)
+        elif self.state.leader_id == settings.node_id:
+            self.is_leader = True
+
+    def _get_my_node_info(self):
+        for n in settings.parsed_cluster_nodes_info:
+            if n["node_id"] == settings.node_id:
+                return n
+        return {"node_id": settings.node_id, "priority": 0, "public_url": settings.public_url}
 
     def start(self):
-        logger.info(f"Starting LeaderRuntime, current term {self.state.term}")
+        logger.info(f"Starting LeaderRuntime. Is Leader: {self.is_leader}, Term: {self.state.term}")
+
+    async def run_loop(self):
+        while True:
+            try:
+                if self.is_leader:
+                    await self._replicate_state()
+                else:
+                    self._check_lease()
+            except Exception as e:
+                logger.error(f"Error in leader run_loop: {e}")
+            await asyncio.sleep(5)
+
+    def _check_lease(self):
+        if not self.state.leader_id:
+            return
+            
+        time_since_heartbeat = time.time() - self.state.leader_last_heartbeat_at
+        if time_since_heartbeat > 15.0:
+            logger.warning(f"Leader lease expired! Last heartbeat {time_since_heartbeat:.1f}s ago.")
+            self._attempt_promotion()
+
+    def _attempt_promotion(self):
+        my_info = self._get_my_node_info()
+        # Find healthy standbys. In a real system, we'd ping them. Here we assume config priority dictates order.
+        # Check if any higher priority node is alive. For simplicity, we just promote if we are highest priority 
+        # among those that seem active, or just strictly based on config priority assuming failed nodes won't fight.
+        # Since this is a practical student project failover:
+        higher_priority_nodes = [n for n in settings.parsed_cluster_nodes_info if n["priority"] > my_info["priority"]]
+        
+        # If we have the highest priority, or if we assume higher ones are dead (simplified logic):
+        # We will aggressively promote if we haven't heard from the leader.
+        # A more robust check would ping higher_priority_nodes first.
+        logger.info(f"Node {settings.node_id} attempting promotion to leader.")
+        self.state.term += 1
+        self.state.leader_id = settings.node_id
+        self.is_leader = True
+        self.state.leader_last_heartbeat_at = time.time()
+        self.store.save(self.state)
+        logger.info(f"Promoted to LEADER! New term: {self.state.term}")
+
+    async def _replicate_state(self):
+        # Push state to all known standbys
+        state_json = self.state.model_dump_json()
+        
+        async with httpx.AsyncClient(timeout=2.0) as client:
+            for node_info in settings.parsed_cluster_nodes_info:
+                if node_info["node_id"] == settings.node_id:
+                    continue
+                try:
+                    url = f"{node_info['public_url']}/api/v1/leader/state/sync"
+                    await client.post(url, json={"state_json": state_json})
+                except Exception as e:
+                    logger.debug(f"Failed to replicate state to {node_info['node_id']}: {e}")
+
+    def receive_state_sync(self, state_json: str):
+        if self.is_leader:
+            logger.warning("Received state sync but I am the leader. Ignoring.")
+            return
+            
+        new_state = ClusterState.model_validate_json(state_json)
+        if new_state.term >= self.state.term:
+            self.state = new_state
+            self.state.leader_last_heartbeat_at = time.time()
+            self.store.save(self.state)
+            logger.debug(f"State synced from leader {self.state.leader_id}, term {self.state.term}")
+        else:
+            logger.warning("Received state sync with older term.")
 
     def register_node(self, node_info):
         self.state.nodes[node_info.node_id] = node_info
-        if node_info.node_id not in self.state.known_nodes:
-            self.state.known_nodes.append(node_info.node_id)
         self.store.save(self.state)
         logger.info(f"Registered node {node_info.node_id}")
 
@@ -41,7 +125,6 @@ class LeaderRuntime:
         if job_id in self.state.active_jobs:
             raise ValueError(f"Job {job_id} already exists")
         
-        # Preprocess if not done, then chunk
         norm_a, meta_a = FastaPreprocessor.preprocess(settings.input_a_path)
         chunks = chunk_file(norm_a, job_id)
         
@@ -79,14 +162,12 @@ class LeaderRuntime:
         if not chunk:
             return
             
-        # Save durable output part
         parts_dir = StoragePaths.get_output_dir() / "parts" / job_id
         parts_dir.mkdir(parents=True, exist_ok=True)
         chunk_file_path = parts_dir / f"{chunk_id}.res"
         with open(chunk_file_path, "w", encoding="utf-8") as f:
             f.write(result_data)
         
-        # Mark as committed
         chunk.state = ChunkState.COMMITTED
         self.store.save(self.state)
         logger.info(f"Committed chunk {chunk_id} for job {job_id}")

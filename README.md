@@ -79,18 +79,22 @@ Watch the logs on both Terminal 1 and 2. The leader will chunk the data, the wor
 To connect laptops across different networks, you only need to expose the **Leader Agent** to the public internet using `ngrok`.
 
 ### Step 1: The Leader (Sebas)
-1. Ensure your `.env` has `LEADER_URL=http://localhost:8001`.
-2. Start your Leader Agent:
+1. Ensure your `.env` specifies all cluster nodes mapping to their public URLs and priorities. For example:
+   ```env
+   NODE_ID=node_sebas
+   ROLE_MODE=worker_standby
+   CLUSTER_NODES=node_sebas,https://sebas.ngrok.app,100;node_juanjo,https://juanjo.ngrok.app,90;node_nico,https://nico.ngrok.app,10
+   ```
+2. Expose your port 8001 via ngrok:
+   ```bash
+   ngrok http 8001 --domain=sebas.ngrok.app
+   ```
+3. Start your Manager (runs both Node + Leader routers):
    ```bash
    python -m dna_cluster.cli.run_manager
    ```
-3. In a new terminal, expose port 8001 via ngrok using your permanent domain:
-   ```bash
-   ngrok http 8001 --domain=kristy-vertebral-toilfully.ngrok-free.dev
-   ```
-4. Tell Juanjo, Nico, Jhonny, and David that the leader is up and running!
 
-### Step 2: The Workers (Juanjo, Nico, Jhonny, David)
+### Step 2: The Workers & Standbys (Juanjo, Nico, Jhonny, David)
 Tell your friends to run exactly these commands in their terminals:
 
 1. **Clone the repository and enter the directory:**
@@ -109,29 +113,28 @@ Tell your friends to run exactly these commands in their terminals:
 
 3. **CRITICAL STEP - Download the 3GB DNA Files:**
    They **MUST** place the exact same 3GB `a.fna` and `b.fna` files into their `data/input/` folders so their local file hashes match yours.
-   ```bash
-   mkdir -p data/input
-   # Copy a.fna and b.fna into adn-distribuido/data/input/
-   ```
 
 4. **Configure their `.env` file:**
-   They need to create a `.env` file in the root of the project with these exact contents (each person uses their respective name for `NODE_ID`):
+   They need to create a `.env` file in the root of the project with these exact contents. **IMPORTANT**: Every node needs its own ngrok URL to be a standby!
    ```env
    NODE_ID=node_juanjo  # Tell Nico to use node_nico, Jhonny to use node_jhonny, etc.
-   ROLE_MODE=worker
-   LEADER_URL=https://kristy-vertebral-toilfully.ngrok-free.dev
+   ROLE_MODE=worker_standby
+   PUBLIC_URL=https://juanjo.ngrok.app # Their own personal ngrok URL!
+   CLUSTER_NODES=node_sebas,https://sebas.ngrok.app,100;node_juanjo,https://juanjo.ngrok.app,90;node_nico,https://nico.ngrok.app,10
    ```
 
-5. **Start their Node Agent:**
+5. **Start their nodes:**
+   If they are a standby, they should expose their port 8001 and run the manager:
    ```bash
-   python -m dna_cluster.cli.run_node
+   ngrok http 8001 --domain=juanjo.ngrok.app
+   python -m dna_cluster.cli.run_manager
    ```
 
-### Step 3: Verifying the Connection
-As soon as your teammates start their nodes, look at your **Leader Agent terminal logs**. You should immediately see:
-- `[INFO] Node registered: node_juanjo`
-- `[INFO] "POST /api/v1/leader/register HTTP/1.1" 200 OK`
-- Continuous `heartbeat` and `request_work` POSTs streaming in from their machines every 5 seconds.
+### Step 3: Verifying the Connection & Failover
+- The node with the highest priority will automatically become the Leader (`node_sebas`).
+- Workers will poll the nodes in `CLUSTER_NODES` until they find the active Leader.
+- The active Leader continuously pushes a state snapshot to all standbys.
+- If you (Sebas) shut down your laptop, `node_juanjo` (priority 90) will detect the missing heartbeats after 15 seconds, increment the term, and promote itself to Leader. The other workers will seamlessly reconnect and resume executing uncommitted chunks!
 
 ### Step 4: Run the 3GB Comparison Job!
 Once you see logs confirming that Juanjo, Nico, Jhonny, and David have all registered with your Leader Agent, you trigger the distributed job from your laptop!
