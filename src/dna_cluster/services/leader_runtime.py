@@ -17,6 +17,9 @@ from dna_cluster.processing.fasta_preprocess import FastaPreprocessor
 from dna_cluster.processing.hashing import get_file_hash
 from dna_cluster.processing.chunking import chunk_file
 from dna_cluster.processing.assemble_output import assemble_final_output
+from dna_cluster.processing.compare_cpu import compare_chunks
+from dna_cluster.services.registration import register_node
+from dna_cluster.services.heartbeat import send_heartbeat
 
 logger = logging.getLogger(__name__)
 
@@ -26,9 +29,17 @@ class LeaderRuntime:
         self.state = self.store.load() or ClusterState()
         self.startup_at = time.time()
         
-        # Determine if we are the initial leader by priority if no state exists
-        me = self._get_my_node_info()
+        my_info = self._get_my_node_info()
+        self.node_info = NodeInfo(
+            node_id=settings.node_id,
+            role_mode=settings.role_mode,
+            leader_priority=my_info["priority"],
+            public_url=settings.public_url,
+            state="ready"
+        )
+        
         self.is_leader = False
+        self.is_processing = False
         
         if self.state.term == 0:
             self.state.term = 1
@@ -44,7 +55,6 @@ class LeaderRuntime:
             self.store.save(self.state)
         elif self.state.leader_id == settings.node_id:
             self.is_leader = True
-            # Re-heartbeat on restart
             self.state.leader_last_heartbeat_at = time.time()
         else:
             logger.info(f"Loaded existing state with Leader: {self.state.leader_id}, Term: {self.state.term}. My ID: {settings.node_id}")
@@ -61,57 +71,129 @@ class LeaderRuntime:
     async def run_loop(self):
         while True:
             try:
+                self._refresh_telemetry()
                 if self.is_leader:
-                    self._update_my_node()
+                    self._update_my_node_in_state()
                     self._check_stuck_chunks()
                     await self._replicate_state()
+                    if "worker" in settings.role_mode:
+                        await self._leader_worker_step()
                 else:
                     self._check_lease()
+                    if "worker" in settings.role_mode:
+                        await self._standby_worker_step()
             except Exception as e:
                 logger.error(f"Error in leader run_loop: {e}")
             await asyncio.sleep(5)
 
-    def _update_my_node(self):
-        my_info = self._get_my_node_info()
-        node = self.state.nodes.get(settings.node_id)
-        if not node:
-            node = NodeInfo(
-                node_id=settings.node_id,
-                role_mode=settings.role_mode,
-                leader_priority=my_info["priority"],
-                public_url=my_info["public_url"],
-                state="ready",
-                term=self.state.term
-            )
-        node.last_seen_at = time.time()
-        node.state = "ready"
-        node.term = self.state.term
-        
-        # If I'm the leader, update my own heartbeat timestamp
-        if self.is_leader:
-            self.state.leader_last_heartbeat_at = time.time()
-            
+    def _refresh_telemetry(self):
         try:
             mem = psutil.virtual_memory()
-            node.available_ram_bytes = mem.available
-            node.total_ram_bytes = mem.total
-            node.cpu_count = psutil.cpu_count(logical=True) or 1
-            node.cpu_load_percent = psutil.cpu_percent()
+            self.node_info.available_ram_bytes = mem.available
+            self.node_info.total_ram_bytes = mem.total
+            self.node_info.cpu_count = psutil.cpu_count(logical=True) or 1
+            self.node_info.cpu_load_percent = psutil.cpu_percent()
             disk = shutil.disk_usage(settings.data_dir)
-            node.disk_free_bytes = disk.free
+            self.node_info.disk_free_bytes = disk.free
+            self.node_info.term = self.state.term
         except Exception:
             pass
-        self.state.nodes[settings.node_id] = node
+
+    def _update_my_node_in_state(self):
+        self.node_info.last_seen_at = time.time()
+        self.node_info.state = "ready" if not self.is_processing else "busy"
+        self.state.nodes[settings.node_id] = self.node_info
+        self.state.leader_last_heartbeat_at = time.time()
+
+    async def _leader_worker_step(self):
+        if self.is_processing:
+            return
+        work = self.request_work(settings.node_id)
+        if work:
+            job_id, chunk = work
+            self.is_processing = True
+            try:
+                # Direct execution as leader
+                await self._execute_chunk_local(job_id, chunk)
+            finally:
+                self.is_processing = False
+
+    async def _standby_worker_step(self):
+        if self.is_processing or not self.state.leader_id:
+            return
+        
+        # Get leader URL from config
+        leader_info = next((n for n in settings.parsed_cluster_nodes_info if n["node_id"] == self.state.leader_id), None)
+        if not leader_info:
+            return
+        
+        leader_url = leader_info["public_url"]
+        
+        try:
+            # Register and Heartbeat to show up in dashboard
+            await register_node(leader_url, self.node_info)
+            await send_heartbeat(leader_url, self.node_info)
+            
+            # Poll for work
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                res = await client.post(
+                    f"{leader_url}/api/v1/leader/chunk/request_work",
+                    json={"node_id": settings.node_id}
+                )
+                if res.status_code == 200:
+                    data = res.json()
+                    if data.get("has_work"):
+                        self.is_processing = True
+                        try:
+                            await self._execute_chunk_remote(leader_url, data)
+                        finally:
+                            self.is_processing = False
+        except Exception as e:
+            logger.debug(f"Standby worker poll failed: {e}")
+
+    async def _execute_chunk_local(self, job_id: str, chunk: ChunkInfo):
+        logger.info(f"Leader processing own chunk {chunk.chunk_id} for job {job_id}")
+        try:
+            norm_a, _ = FastaPreprocessor.preprocess(settings.input_a_path)
+            norm_b, _ = FastaPreprocessor.preprocess(settings.input_b_path)
+            
+            result_str = compare_chunks(norm_a, norm_b, chunk.start_offset, chunk.length)
+            self.commit_chunk_result(chunk.chunk_id, job_id, result_str)
+        except Exception as e:
+            logger.error(f"Leader failed to process local chunk: {e}")
+
+    async def _execute_chunk_remote(self, leader_url: str, data: dict):
+        chunk_id = data["chunk_id"]
+        job_id = data["job_id"]
+        logger.info(f"Standby processing remote chunk {chunk_id} for job {job_id}")
+        
+        try:
+            norm_a, _ = FastaPreprocessor.preprocess(settings.input_a_path)
+            norm_b, _ = FastaPreprocessor.preprocess(settings.input_b_path)
+            
+            result_str = compare_chunks(norm_a, norm_b, data["start_offset"], data["length"])
+            
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                await client.post(
+                    f"{leader_url}/api/v1/leader/chunk/result",
+                    json={
+                        "node_id": settings.node_id,
+                        "chunk_id": chunk_id,
+                        "job_id": job_id,
+                        "result_data": result_str
+                    }
+                )
+            logger.info(f"Successfully uploaded result for {chunk_id}")
+        except Exception as e:
+            logger.error(f"Standby failed to process/upload chunk: {e}")
 
     def _check_lease(self):
         now = time.time()
         
-        # Preemption Check: If I'm NOT leader, but I have higher priority than current leader
         if self.state.leader_id and self.state.leader_id != settings.node_id:
             leader_node = self.state.nodes.get(self.state.leader_id)
             my_info = self._get_my_node_info()
             
-            # Use priority from config if node state doesn't have it yet
             leader_prio = leader_node.leader_priority if leader_node else 0
             if not leader_prio:
                  leader_info = next((n for n in settings.parsed_cluster_nodes_info if n["node_id"] == self.state.leader_id), None)
@@ -120,14 +202,12 @@ class LeaderRuntime:
 
             if my_info["priority"] > leader_prio:
                 time_since_heartbeat = now - self.state.leader_last_heartbeat_at
-                # Preempt if current leader is silent for > 15s (demo-friendly preemption)
                 if time_since_heartbeat > 15.0:
                     logger.info(f"Preempting lower priority leader {self.state.leader_id} (Prio: {leader_prio} < {my_info['priority']})")
                     self._attempt_promotion()
                     return
 
         if not self.state.leader_id:
-            # Grace period on startup to hear from existing leader
             if now - self.startup_at < 15.0:
                 return
             self._attempt_promotion()
@@ -143,14 +223,12 @@ class LeaderRuntime:
         my_priority = my_info["priority"]
         
         now = time.time()
-        # Check if any alive node has a higher priority than me
         for n_id, n in self.state.nodes.items():
             if n_id != settings.node_id and not n.is_disabled and (now - n.last_seen_at < 30.0):
                 if n.leader_priority > my_priority:
                     logger.debug(f"Skipping promotion: node {n_id} has higher priority ({n.leader_priority} > {my_priority}) and is alive.")
                     return
 
-        # If I have the highest priority among alive nodes, promote myself
         logger.info(f"Node {settings.node_id} attempting promotion to leader.")
         self.state.term += 1
         self.state.leader_id = settings.node_id
@@ -170,7 +248,6 @@ class LeaderRuntime:
                     url = f"{node_info['public_url']}/api/v1/leader/state/sync"
                     await client.post(url, json={"state_json": state_json})
                 except Exception as e:
-                    # Reduced log level for common network failures in replication
                     logger.debug(f"Failed to replicate state to {node_info['node_id']}: {e}")
 
     def receive_state_sync(self, state_json: str):
@@ -183,7 +260,6 @@ class LeaderRuntime:
         my_info = self._get_my_node_info()
         my_priority = my_info["priority"]
         
-        # 1. Term Check: Absolute Precedence
         if new_state.term > self.state.term:
             logger.info(f"Yielding to higher term: {new_state.term} > {self.state.term} (Leader: {new_state.leader_id})")
             self.is_leader = False
@@ -197,7 +273,6 @@ class LeaderRuntime:
                  logger.warning(f"Ignoring state sync with older term ({new_state.term} < {self.state.term}) from {new_state.leader_id}. I am the current leader.")
             return
 
-        # 2. Same Term: Tie-break by Priority
         leader_prio = 0
         leader_info = next((n for n in settings.parsed_cluster_nodes_info if n["node_id"] == new_state.leader_id), None)
         if leader_info:
@@ -214,7 +289,6 @@ class LeaderRuntime:
             if self.is_leader:
                 logger.debug(f"Received sync from lower priority node {new_state.leader_id} in term {self.state.term}. Ignoring.")
         else:
-            # Same priority, same term: tie-break by ID
             if new_state.leader_id > settings.node_id:
                 if self.is_leader:
                     logger.info(f"Yielding leadership to node {new_state.leader_id} (ID tie-break) in term {new_state.term}")
@@ -260,7 +334,7 @@ class LeaderRuntime:
         if job_id in self.state.active_jobs:
             raise ValueError(f"Job {job_id} already exists")
         
-        norm_a, meta_a = FastaPreprocessor.preprocess(settings.input_a_path)
+        norm_a, _ = FastaPreprocessor.preprocess(settings.input_a_path)
         
         chunk_size = settings.chunk_size_bytes
         for n in self.state.nodes.values():
