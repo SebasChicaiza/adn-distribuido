@@ -83,11 +83,11 @@ To connect laptops across different networks, you only need to expose the **Lead
    ```env
    NODE_ID=node_sebas
    ROLE_MODE=worker_standby
-   CLUSTER_NODES=node_sebas,https://sebas.ngrok.app,100;node_juanjo,https://juanjo.ngrok.app,90;node_nico,https://nico.ngrok.app,10
+   CLUSTER_NODES=node_sebas,https://kristy-vertebral-toilfully.ngrok-free.dev,100;node_juanjo,https://juanjo.ngrok.app,90;node_nico,https://graves-angelfish-disclose.ngrok-free.dev,80;node_jhonny,https://item-overrun-glorified.ngrok-free.dev,70;node_david,https://magnesium-slicer-exhume.ngrok-free.dev,60
    ```
 2. Expose your port 8001 via ngrok:
    ```bash
-   ngrok http 8001 --domain=sebas.ngrok.app
+   ngrok http 8001 --domain=kristy-vertebral-toilfully.ngrok-free.dev
    ```
 3. Start your Manager (runs both Node + Leader routers):
    ```bash
@@ -120,7 +120,7 @@ Tell your friends to run exactly these commands in their terminals:
    NODE_ID=node_juanjo  # Tell Nico to use node_nico, Jhonny to use node_jhonny, etc.
    ROLE_MODE=worker_standby
    PUBLIC_URL=https://juanjo.ngrok.app # Their own personal ngrok URL!
-   CLUSTER_NODES=node_sebas,https://sebas.ngrok.app,100;node_juanjo,https://juanjo.ngrok.app,90;node_nico,https://nico.ngrok.app,10
+   CLUSTER_NODES=node_sebas,https://kristy-vertebral-toilfully.ngrok-free.dev,100;node_juanjo,https://juanjo.ngrok.app,90;node_nico,https://graves-angelfish-disclose.ngrok-free.dev,80;node_jhonny,https://item-overrun-glorified.ngrok-free.dev,70;node_david,https://magnesium-slicer-exhume.ngrok-free.dev,60
    ```
 
 5. **Start their nodes:**
