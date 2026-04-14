@@ -78,25 +78,51 @@ Watch the logs on both Terminal 1 and 2. The leader will chunk the data, the wor
 
 To connect laptops across different networks, you only need to expose the **Leader Agent** to the public internet using `ngrok`.
 
-### Step 1: The Leader (You)
+### Step 1: The Leader (Sebas)
 1. Ensure your `.env` has `LEADER_URL=http://localhost:8001`.
-2. Start your Leader Agent: `python -m dna_cluster.cli.run_manager`.
-3. In a new terminal, expose port 8001 via ngrok:
+2. Start your Leader Agent:
    ```bash
-   ngrok http 8001
+   python -m dna_cluster.cli.run_manager
    ```
-4. Copy the `https://<your-id>.ngrok.app` URL provided by ngrok. **Share this URL with your team.**
+3. In a new terminal, expose port 8001 via ngrok using your permanent domain:
+   ```bash
+   ngrok http 8001 --domain=kristy-vertebral-toilfully.ngrok-free.dev
+   ```
+4. Tell Juanjo, Nico, Jhonny, and David that the leader is up and running!
 
-### Step 2: The Workers (Your Teammates)
-1. They clone the repo and run `pip install -e .`
-2. **CRITICAL:** They must place the exact same 3GB `.fna` files in their `data/input/` folders so their local hashes match yours.
-3. They configure their `.env` files:
-   ```env
-   NODE_ID=node_juanjo  # (or node_nico, node_jhonny)
-   ROLE_MODE=worker
-   LEADER_URL=https://<your-id>.ngrok.app  # Paste the URL you shared!
+### Step 2: The Workers (Juanjo, Nico, Jhonny, David)
+Tell your friends to run exactly these commands in their terminals:
+
+1. **Clone the repository and enter the directory:**
+   ```bash
+   git clone git@github.com:SebasChicaiza/adn-distribuido.git
+   cd adn-distribuido
    ```
-4. They start their Node Agent:
+
+2. **Create a virtual environment and install the package:**
+   ```bash
+   python -m venv .venv
+   source .venv/bin/activate  # (On Windows, they might need: .venv\Scripts\activate)
+   pip install -r requirements.txt
+   pip install -e .
+   ```
+
+3. **CRITICAL STEP - Download the 3GB DNA Files:**
+   They **MUST** place the exact same 3GB `a.fna` and `b.fna` files into their `data/input/` folders so their local file hashes match yours.
+   ```bash
+   mkdir -p data/input
+   # Copy a.fna and b.fna into adn-distribuido/data/input/
+   ```
+
+4. **Configure their `.env` file:**
+   They need to create a `.env` file in the root of the project with these exact contents (each person uses their respective name for `NODE_ID`):
+   ```env
+   NODE_ID=node_juanjo  # Tell Nico to use node_nico, Jhonny to use node_jhonny, etc.
+   ROLE_MODE=worker
+   LEADER_URL=https://kristy-vertebral-toilfully.ngrok-free.dev
+   ```
+
+5. **Start their Node Agent:**
    ```bash
    python -m dna_cluster.cli.run_node
    ```
@@ -105,9 +131,19 @@ To connect laptops across different networks, you only need to expose the **Lead
 As soon as your teammates start their nodes, look at your **Leader Agent terminal logs**. You should immediately see:
 - `[INFO] Node registered: node_juanjo`
 - `[INFO] "POST /api/v1/leader/register HTTP/1.1" 200 OK`
-- Continuous `heartbeat` and `request_work` POSTs from their machines.
+- Continuous `heartbeat` and `request_work` POSTs streaming in from their machines every 5 seconds.
 
-Once everyone is connected, trigger the job exactly like the local demo!
+### Step 4: Run the 3GB Comparison Job!
+Once you see logs confirming that Juanjo, Nico, Jhonny, and David have all registered with your Leader Agent, you trigger the distributed job from your laptop!
+
+Run this in a third terminal on your laptop:
+```bash
+curl -X POST http://localhost:8001/api/v1/leader/job/create \
+     -H "Content-Type: application/json" \
+     -d '{"job_id": "massive_3gb_job"}'
+```
+
+Your leader node will generate hundreds of chunks. The next time your friends' nodes poll you via ngrok, they will automatically be handed a piece of the work. You'll see the `.res` chunks being uploaded back to your machine until the job completes and auto-assembles the final file!
 
 ## Testing
 
