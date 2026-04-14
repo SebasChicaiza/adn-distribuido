@@ -59,6 +59,32 @@ class LeaderRuntime:
         else:
             logger.info(f"Loaded existing state with Leader: {self.state.leader_id}, Term: {self.state.term}. My ID: {settings.node_id}")
 
+        # Log and sanitise persisted jobs on startup
+        self._recover_stale_jobs()
+
+    def _recover_stale_jobs(self):
+        """Reset ASSIGNED/IN_PROGRESS chunks from a previous session and log loaded jobs."""
+        if not self.state.active_jobs:
+            return
+        changed = False
+        for job_id, job in self.state.active_jobs.items():
+            pending = sum(1 for c in job.chunks.values() if c.state == ChunkState.PENDING)
+            committed = sum(1 for c in job.chunks.values() if c.state == ChunkState.COMMITTED)
+            stale = 0
+            if job.state == "running":
+                for chunk in job.chunks.values():
+                    if chunk.state in (ChunkState.ASSIGNED, ChunkState.IN_PROGRESS, ChunkState.RETRY):
+                        chunk.state = ChunkState.PENDING
+                        chunk.assigned_node = None
+                        stale += 1
+                        changed = True
+            logger.info(
+                f"Loaded persisted job '{job_id}' [{job.state}]: "
+                f"{len(job.chunks)} chunks (committed={committed}, pending={pending}, reset_stale={stale})"
+            )
+        if changed:
+            self.store.save(self.state)
+
     def _get_my_node_info(self):
         for n in settings.parsed_cluster_nodes_info:
             if n["node_id"] == settings.node_id:
@@ -124,7 +150,7 @@ class LeaderRuntime:
         if self.is_processing or not self.state.leader_id or self.is_leader:
             return
         
-        # Don't try to register with ourselves if we are the leader (redundant check)
+        # Don't try to register with ourselves
         if self.state.leader_id == settings.node_id:
             return
         
@@ -135,9 +161,16 @@ class LeaderRuntime:
         
         leader_url = leader_info["public_url"]
         
+        # Never contact our own URL (self-loop guard)
+        if leader_url == settings.public_url:
+            logger.debug("Skipping standby work: leader URL matches our own public URL")
+            return
+        
         try:
             # Register and Heartbeat to show up in dashboard
-            await register_node(leader_url, self.node_info)
+            registered = await register_node(leader_url, self.node_info)
+            if not registered:
+                return  # Don't poll for work if we can't even register
             await send_heartbeat(leader_url, self.node_info)
             
             # Poll for work
