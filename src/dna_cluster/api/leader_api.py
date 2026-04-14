@@ -77,10 +77,46 @@ async def control_status(request: Request):
     runtime = request.app.state.runtime
     if not hasattr(runtime, "is_leader") or not runtime.is_leader:
         raise HTTPException(status_code=403, detail="Not the leader")
+    
+    now = __import__("time").time()
+    nodes_summary = {}
+    for node_id, node in runtime.state.nodes.items():
+        nodes_summary[node_id] = {
+            "state": node.state,
+            "is_disabled": node.is_disabled,
+            "leader_priority": node.leader_priority,
+            "available_ram_gb": round(node.available_ram_bytes / (1024**3), 2) if node.available_ram_bytes else 0,
+            "total_ram_gb": round(node.total_ram_bytes / (1024**3), 2) if node.total_ram_bytes else 0,
+            "cpu_count": node.cpu_count,
+            "cpu_load_percent": node.cpu_load_percent,
+            "disk_free_gb": round(node.disk_free_bytes / (1024**3), 2) if node.disk_free_bytes else 0,
+            "last_seen_ago_s": round(now - node.last_seen_at, 1) if node.last_seen_at else None,
+            "public_url": node.public_url,
+        }
+    
+    jobs_summary = {}
+    for job_id, job in runtime.state.active_jobs.items():
+        total = len(job.chunks)
+        committed = sum(1 for c in job.chunks.values() if c.state == "committed")
+        pending = sum(1 for c in job.chunks.values() if c.state in ("pending", "retry"))
+        assigned = sum(1 for c in job.chunks.values() if c.state in ("assigned", "in_progress"))
+        jobs_summary[job_id] = {
+            "state": job.state,
+            "total_chunks": total,
+            "committed": committed,
+            "pending": pending,
+            "in_progress": assigned,
+            "progress_pct": round(committed / total * 100, 1) if total else 0,
+        }
+    
     return {
+        "leader": runtime.state.leader_id,
+        "term": runtime.state.term,
         "scheduler_mode": runtime.state.scheduler_mode, 
-        "pinned_node_id": runtime.state.pinned_node_id, 
-        "nodes": runtime.state.nodes
+        "pinned_node_id": runtime.state.pinned_node_id,
+        "active_nodes": len([n for n in runtime.state.nodes.values() if (now - n.last_seen_at < 60)]),
+        "nodes": nodes_summary,
+        "jobs": jobs_summary,
     }
 
 @router.post("/control/disable_node")

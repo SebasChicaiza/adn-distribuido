@@ -86,9 +86,15 @@ class LeaderRuntime:
             self.store.save(self.state)
 
     def _get_my_node_info(self):
+        # Check if the leader has set a custom priority for us in the replicated state
+        state_node = self.state.nodes.get(settings.node_id)
         for n in settings.parsed_cluster_nodes_info:
             if n["node_id"] == settings.node_id:
-                return n
+                result = dict(n)
+                # Use priority from replicated state if available (leader may have changed it)
+                if state_node and state_node.leader_priority != 0:
+                    result["priority"] = state_node.leader_priority
+                return result
         return {"node_id": settings.node_id, "priority": 0, "public_url": settings.public_url}
 
     def start(self):
@@ -360,7 +366,9 @@ class LeaderRuntime:
         existing = self.state.nodes.get(node_info.node_id)
         if existing:
             node_info.is_disabled = existing.is_disabled
-            node_info.leader_priority = existing.leader_priority
+            # Preserve leader-set priority if it was changed via API
+            if existing.leader_priority != 0:
+                node_info.leader_priority = existing.leader_priority
         self.state.nodes[node_info.node_id] = node_info
         self.store.save(self.state)
         logger.info(f"Registered node {node_info.node_id}")
@@ -370,7 +378,9 @@ class LeaderRuntime:
         existing = self.state.nodes.get(node_info.node_id)
         if existing:
             node_info.is_disabled = existing.is_disabled
-            node_info.leader_priority = existing.leader_priority
+            # Preserve leader-set priority if it was changed via API
+            if existing.leader_priority != 0:
+                node_info.leader_priority = existing.leader_priority
         self.state.nodes[node_info.node_id] = node_info
 
     def create_job(self, job_id: str):
@@ -380,12 +390,22 @@ class LeaderRuntime:
         
         norm_a, _ = FastaPreprocessor.preprocess(settings.input_a_path)
         
+        # Determine chunk size based on the minimum available RAM across active nodes
         chunk_size = settings.chunk_size_bytes
-        for n in self.state.nodes.values():
-            if not n.is_disabled and n.available_ram_bytes > 0 and n.available_ram_bytes < 2 * 1024**3:
-                chunk_size = 20 * 1024 * 1024
-                logger.info(f"Found low RAM node {n.node_id}, adjusting chunk size to {chunk_size} bytes")
-                break
+        now = time.time()
+        active_nodes = [n for n in self.state.nodes.values()
+                        if not n.is_disabled and (now - n.last_seen_at < 60.0) and n.available_ram_bytes > 0]
+        if active_nodes:
+            min_ram = min(n.available_ram_bytes for n in active_nodes)
+            # Use ~25% of the smallest node's available RAM as chunk size, capped
+            adaptive_chunk = max(10 * 1024 * 1024, min(int(min_ram * 0.25), chunk_size))
+            if adaptive_chunk < chunk_size:
+                logger.info(
+                    f"Adaptive chunk sizing: min available RAM is {min_ram / (1024**3):.1f} GB "
+                    f"(node {min(active_nodes, key=lambda n: n.available_ram_bytes).node_id}). "
+                    f"Chunk size: {adaptive_chunk / (1024**2):.0f} MB"
+                )
+                chunk_size = adaptive_chunk
 
         chunks = chunk_file(norm_a, job_id, chunk_size)
         
