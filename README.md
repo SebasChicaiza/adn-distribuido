@@ -83,7 +83,7 @@ To connect laptops across different networks, you only need to expose the **Lead
    ```env
    NODE_ID=node_sebas
    ROLE_MODE=worker_standby
-   CLUSTER_NODES=node_sebas,https://kristy-vertebral-toilfully.ngrok-free.dev,100;node_juanjo,https://juanjo.ngrok.app,90;node_nico,https://graves-angelfish-disclose.ngrok-free.dev,80;node_jhonny,https://item-overrun-glorified.ngrok-free.dev,70;node_david,https://magnesium-slicer-exhume.ngrok-free.dev,60
+   CLUSTER_NODES=node_sebas,https://kristy-vertebral-toilfully.ngrok-free.dev,100;node_juanjo,https://ducking-photo-tiny.ngrok-free.dev,90;node_nico,https://graves-angelfish-disclose.ngrok-free.dev,80;node_jhonny,https://item-overrun-glorified.ngrok-free.dev,70;node_david,https://magnesium-slicer-exhume.ngrok-free.dev,60
    ```
 2. Expose your port 8001 via ngrok:
    ```bash
@@ -119,8 +119,8 @@ Tell your friends to run exactly these commands in their terminals:
    ```env
    NODE_ID=node_juanjo  # Tell Nico to use node_nico, Jhonny to use node_jhonny, etc.
    ROLE_MODE=worker_standby
-   PUBLIC_URL=https://juanjo.ngrok.app # Their own personal ngrok URL!
-   CLUSTER_NODES=node_sebas,https://kristy-vertebral-toilfully.ngrok-free.dev,100;node_juanjo,https://juanjo.ngrok.app,90;node_nico,https://graves-angelfish-disclose.ngrok-free.dev,80;node_jhonny,https://item-overrun-glorified.ngrok-free.dev,70;node_david,https://magnesium-slicer-exhume.ngrok-free.dev,60
+   PUBLIC_URL=https://ducking-photo-tiny.ngrok-free.dev # Their own personal ngrok URL!
+   CLUSTER_NODES=node_sebas,https://kristy-vertebral-toilfully.ngrok-free.dev,100;node_juanjo,https://ducking-photo-tiny.ngrok-free.dev,90;node_nico,https://graves-angelfish-disclose.ngrok-free.dev,80;node_jhonny,https://item-overrun-glorified.ngrok-free.dev,70;node_david,https://magnesium-slicer-exhume.ngrok-free.dev,60
    ```
 
 5. **Start their nodes:**
@@ -203,3 +203,4 @@ pytest tests/
 - **Leader Failover:** The state store now accurately models known nodes and jobs, but the logic to promote a Standby Node to Leader via priority election is not yet active.
 - **Worker Rejoin / Retry:** Reassigning chunks from offline/failed workers is stubbed but needs robust timeout enforcement via heartbeat drops.
 - **Pluggable GPU Backend:** Currently entirely CPU-bound. Needs a CuPy/Numba or OpenCL interface to selectively execute chunks on GPUs when `gpu_available` is True.
+ilable` is True.

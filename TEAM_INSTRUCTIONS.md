@@ -59,7 +59,7 @@ ROLE_MODE=worker_standby
 PUBLIC_URL=https://kristy-vertebral-toilfully.ngrok-free.dev
 
 # Do NOT change this line. This is the master map of the cluster.
-CLUSTER_NODES=node_sebas,https://kristy-vertebral-toilfully.ngrok-free.dev,100;node_juanjo,https://juanjo.ngrok.app,90;node_nico,https://graves-angelfish-disclose.ngrok-free.dev,80;node_jhonny,https://item-overrun-glorified.ngrok-free.dev,70;node_david,https://magnesium-slicer-exhume.ngrok-free.dev,60
+CLUSTER_NODES=node_sebas,https://kristy-vertebral-toilfully.ngrok-free.dev,100;node_juanjo,https://ducking-photo-tiny.ngrok-free.dev,90;node_nico,https://graves-angelfish-disclose.ngrok-free.dev,80;node_jhonny,https://item-overrun-glorified.ngrok-free.dev,70;node_david,https://magnesium-slicer-exhume.ngrok-free.dev,60
 
 DATA_DIR=./data
 INPUT_A_PATH=./data/input/a.fna
@@ -74,7 +74,7 @@ In a **new, separate terminal**, run your specific ngrok command to expose port 
 - **Nico:** `ngrok http 8001 --domain=graves-angelfish-disclose.ngrok-free.dev`
 - **Jhonny:** `ngrok http 8001 --domain=item-overrun-glorified.ngrok-free.dev`
 - **David:** `ngrok http 8001 --domain=magnesium-slicer-exhume.ngrok-free.dev`
-- **Juanjo:** `ngrok http 8001 --domain=juanjo.ngrok.app` *(Make sure this matches your actual reserved domain)*
+- **Juanjo:** `ngrok http 8001 --domain=ducking-photo-tiny.ngrok-free.dev` *(Make sure this matches your actual reserved domain)*
 
 ### 3. Start the Manager Node (or Node Agent)
 Before starting, it is highly recommended to clean any old local state or test data so you start fresh:
