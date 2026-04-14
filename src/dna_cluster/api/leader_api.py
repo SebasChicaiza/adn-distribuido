@@ -165,3 +165,31 @@ async def set_priority(req: SetPriorityRequest, request: Request):
         runtime.store.save(runtime.state)
         return {"status": "ok", "node": node.node_id, "priority": req.priority}
     raise HTTPException(status_code=404, detail="Node not found")
+
+@router.post("/job/cancel")
+async def cancel_job(req: JobCreateRequest, request: Request):
+    runtime = request.app.state.runtime
+    if not hasattr(runtime, "is_leader") or not runtime.is_leader:
+        raise HTTPException(status_code=403, detail="Not the leader")
+    job = runtime.state.active_jobs.get(req.job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail=f"Job {req.job_id} not found")
+    job.state = "cancelled"
+    runtime.store.save(runtime.state)
+    logger.info(f"Job {req.job_id} cancelled by leader")
+    return {"status": "cancelled", "job_id": req.job_id}
+
+@router.post("/job/clear_finished")
+async def clear_finished_jobs(request: Request):
+    runtime = request.app.state.runtime
+    if not hasattr(runtime, "is_leader") or not runtime.is_leader:
+        raise HTTPException(status_code=403, detail="Not the leader")
+    removed = []
+    to_remove = [jid for jid, j in runtime.state.active_jobs.items()
+                 if j.state in ("completed", "cancelled", "failed")]
+    for jid in to_remove:
+        del runtime.state.active_jobs[jid]
+        removed.append(jid)
+    runtime.store.save(runtime.state)
+    logger.info(f"Cleared {len(removed)} finished jobs: {removed}")
+    return {"status": "ok", "cleared_jobs": removed}
