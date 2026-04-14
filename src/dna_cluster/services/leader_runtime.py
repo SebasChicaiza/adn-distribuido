@@ -155,7 +155,7 @@ class LeaderRuntime:
         chunk_size = settings.chunk_size_bytes
         for n in self.state.nodes.values():
             if not n.is_disabled and n.available_ram_bytes > 0 and n.available_ram_bytes < 2 * 1024**3:
-                chunk_size = 5 * 1024 * 1024
+                chunk_size = 20 * 1024 * 1024
                 logger.info(f"Found low RAM node {n.node_id}, adjusting chunk size to {chunk_size} bytes")
                 break
 

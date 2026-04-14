@@ -13,7 +13,7 @@ class Settings(BaseSettings):
     input_a_path: Path = Path("./data/input/a.fna")
     input_b_path: Path = Path("./data/input/b.fna")
     log_level: str = "INFO"
-    chunk_size_bytes: int = 10 * 1024 * 1024 # 10MB chunk for local processing
+    chunk_size_bytes: int = 100 * 1024 * 1024 # 100MB chunk for local processing
     api_port: int = 8000
     api_host: str = "0.0.0.0"
 
