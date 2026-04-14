@@ -50,6 +50,8 @@ class LeaderRuntime:
         while True:
             try:
                 if self.is_leader:
+                    self._update_my_node()
+                    self._check_stuck_chunks()
                     await self._replicate_state()
                 else:
                     self._check_lease()
@@ -57,12 +59,41 @@ class LeaderRuntime:
                 logger.error(f"Error in leader run_loop: {e}")
             await asyncio.sleep(5)
 
+    def _update_my_node(self):
+        my_info = self._get_my_node_info()
+        node = self.state.nodes.get(settings.node_id)
+        if not node:
+            node = NodeInfo(
+                node_id=settings.node_id,
+                role_mode=settings.role_mode,
+                leader_priority=my_info["priority"],
+                public_url=my_info["public_url"],
+                state="ready",
+                term=self.state.term
+            )
+        node.last_seen_at = time.time()
+        node.state = "ready"
+        node.term = self.state.term
+        import psutil
+        import shutil
+        try:
+            mem = psutil.virtual_memory()
+            node.available_ram_bytes = mem.available
+            node.total_ram_bytes = mem.total
+            node.cpu_count = psutil.cpu_count(logical=True) or 1
+            node.cpu_load_percent = psutil.cpu_percent()
+            disk = shutil.disk_usage(settings.data_dir)
+            node.disk_free_bytes = disk.free
+        except Exception:
+            pass
+        self.state.nodes[settings.node_id] = node
+
     def _check_lease(self):
         if not self.state.leader_id:
             return
-            
+
         time_since_heartbeat = time.time() - self.state.leader_last_heartbeat_at
-        if time_since_heartbeat > 15.0:
+        if time_since_heartbeat > 45.0:
             logger.warning(f"Leader lease expired! Last heartbeat {time_since_heartbeat:.1f}s ago.")
             self._attempt_promotion()
 
@@ -86,7 +117,6 @@ class LeaderRuntime:
         logger.info(f"Promoted to LEADER! New term: {self.state.term}")
 
     async def _replicate_state(self):
-        # Push state to all known standbys
         state_json = self.state.model_dump_json()
         
         async with httpx.AsyncClient(timeout=2.0) as client:
