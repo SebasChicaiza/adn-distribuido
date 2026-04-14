@@ -21,3 +21,4 @@ class NodeInfo(BaseModel):
     cpu_benchmark_mb_s: float = 0.0
     last_seen_at: float = 0.0
     is_disabled: bool = False
+    processing_chunks: list[str] = []  # chunk_ids currently being processed

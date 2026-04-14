@@ -92,6 +92,8 @@ async def control_status(request: Request):
             "disk_free_gb": round(node.disk_free_bytes / (1024**3), 2) if node.disk_free_bytes else 0,
             "last_seen_ago_s": round(now - node.last_seen_at, 1) if node.last_seen_at else None,
             "public_url": node.public_url,
+            "active_tasks": node.active_tasks,
+            "processing_chunks": node.processing_chunks,
         }
     
     jobs_summary = {}

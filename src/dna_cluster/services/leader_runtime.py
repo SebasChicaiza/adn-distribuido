@@ -39,7 +39,8 @@ class LeaderRuntime:
         )
         
         self.is_leader = False
-        self.is_processing = False
+        self._active_chunks: dict[str, str] = {}  # chunk_id -> job_id currently processing
+        self._max_concurrent = max(1, (psutil.cpu_count(logical=True) or 4) // 4)
         self._registered_with_leader: str | None = None
         
         if self.state.term == 0:
@@ -135,25 +136,27 @@ class LeaderRuntime:
 
     def _update_my_node_in_state(self):
         self.node_info.last_seen_at = time.time()
-        self.node_info.state = "ready" if not self.is_processing else "busy"
+        self.node_info.state = "busy" if len(self._active_chunks) >= self._max_concurrent else "ready"
+        self.node_info.active_tasks = len(self._active_chunks)
+        self.node_info.processing_chunks = list(self._active_chunks.keys())
         self.node_info.term = self.state.term
         self.state.nodes[settings.node_id] = self.node_info
         self.state.leader_last_heartbeat_at = time.time()
 
     async def _leader_worker_step(self):
-        if self.is_processing:
-            return
-        work = self.request_work(settings.node_id)
-        if work:
+        while len(self._active_chunks) < self._max_concurrent:
+            work = self.request_work(settings.node_id)
+            if not work:
+                break
             job_id, chunk = work
-            self.is_processing = True
+            self._active_chunks[chunk.chunk_id] = job_id
             asyncio.create_task(self._run_local_chunk(job_id, chunk))
 
     async def _run_local_chunk(self, job_id: str, chunk):
         try:
             await self._execute_chunk_local(job_id, chunk)
         finally:
-            self.is_processing = False
+            self._active_chunks.pop(chunk.chunk_id, None)
 
     async def _standby_worker_step(self):
         if not self.state.leader_id or self.is_leader:
@@ -183,23 +186,31 @@ class LeaderRuntime:
                     return
                 self._registered_with_leader = self.state.leader_id
             
+            # Update telemetry for heartbeat
+            self.node_info.active_tasks = len(self._active_chunks)
+            self.node_info.processing_chunks = list(self._active_chunks.keys())
+            self.node_info.state = "busy" if len(self._active_chunks) >= self._max_concurrent else "ready"
+            
             # Always send heartbeat so leader knows we're alive
             await send_heartbeat(leader_url, self.node_info)
             
-            # Only request work if not already processing a chunk
-            if self.is_processing:
-                return
-            
-            async with httpx.AsyncClient(timeout=5.0) as client:
-                res = await client.post(
-                    f"{leader_url}/api/v1/leader/chunk/request_work",
-                    json={"node_id": settings.node_id}
-                )
-                if res.status_code == 200:
-                    data = res.json()
-                    if data.get("has_work"):
-                        self.is_processing = True
-                        asyncio.create_task(self._run_remote_chunk(leader_url, data))
+            # Request multiple chunks up to our concurrency limit
+            while len(self._active_chunks) < self._max_concurrent:
+                async with httpx.AsyncClient(timeout=5.0) as client:
+                    res = await client.post(
+                        f"{leader_url}/api/v1/leader/chunk/request_work",
+                        json={"node_id": settings.node_id}
+                    )
+                    if res.status_code == 200:
+                        data = res.json()
+                        if data.get("has_work"):
+                            chunk_id = data["chunk_id"]
+                            self._active_chunks[chunk_id] = data["job_id"]
+                            asyncio.create_task(self._run_remote_chunk(leader_url, data))
+                        else:
+                            break  # No more work available
+                    else:
+                        break
         except Exception as e:
             self._registered_with_leader = None  # Re-register on next cycle
             logger.debug(f"Standby worker poll failed: {e}")
@@ -208,7 +219,7 @@ class LeaderRuntime:
         try:
             await self._execute_chunk_remote(leader_url, data)
         finally:
-            self.is_processing = False
+            self._active_chunks.pop(data.get("chunk_id"), None)
 
     async def _execute_chunk_local(self, job_id: str, chunk: ChunkInfo):
         logger.info(f"Leader processing own chunk {chunk.chunk_id} for job {job_id}")
@@ -216,6 +227,7 @@ class LeaderRuntime:
             result_str = await asyncio.to_thread(
                 self._process_chunk_sync, chunk.start_offset, chunk.length
             )
+            self._save_chunk_cache(chunk.chunk_id, job_id, result_str)
             self.commit_chunk_result(chunk.chunk_id, job_id, result_str)
         except Exception as e:
             logger.error(f"Leader failed to process local chunk {chunk.chunk_id}: {e}")
@@ -243,6 +255,9 @@ class LeaderRuntime:
                 self._process_chunk_sync, data["start_offset"], data["length"]
             )
             
+            # Save locally for failover recovery
+            self._save_chunk_cache(chunk_id, job_id, result_str)
+            
             async with httpx.AsyncClient(timeout=30.0) as client:
                 await client.post(
                     f"{leader_url}/api/v1/leader/chunk/result",
@@ -256,6 +271,85 @@ class LeaderRuntime:
             logger.info(f"Successfully uploaded result for {chunk_id}")
         except Exception as e:
             logger.error(f"Standby failed to process/upload chunk {chunk_id}: {e}")
+
+    # ---- Local chunk cache for failover recovery ----
+
+    @staticmethod
+    def _get_chunk_cache_dir() -> Path:
+        d = StoragePaths.get_work_dir() / "chunk_cache"
+        d.mkdir(parents=True, exist_ok=True)
+        return d
+
+    def _save_chunk_cache(self, chunk_id: str, job_id: str, result_data: str):
+        """Save processed chunk locally so a new leader can recover it."""
+        cache_dir = self._get_chunk_cache_dir() / job_id
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        (cache_dir / f"{chunk_id}.res").write_text(result_data, encoding="utf-8")
+
+    def get_cached_chunks(self) -> Dict[str, list]:
+        """Return {job_id: [chunk_id, ...]} of locally cached results."""
+        cache_dir = self._get_chunk_cache_dir()
+        result: Dict[str, list] = {}
+        if not cache_dir.exists():
+            return result
+        for job_dir in cache_dir.iterdir():
+            if job_dir.is_dir():
+                chunks = [f.stem for f in job_dir.glob("*.res")]
+                if chunks:
+                    result[job_dir.name] = chunks
+        return result
+
+    def get_cached_chunk_data(self, job_id: str, chunk_id: str) -> Optional[str]:
+        """Read a single cached chunk result."""
+        path = self._get_chunk_cache_dir() / job_id / f"{chunk_id}.res"
+        if path.exists():
+            return path.read_text(encoding="utf-8")
+        return None
+
+    async def _recover_chunks_from_nodes(self):
+        """After becoming leader, ask all known nodes for cached chunk results."""
+        if not self.state.active_jobs:
+            return
+        # Collect chunks that need recovery (not COMMITTED)
+        needed: Dict[str, set] = {}
+        for job_id, job in self.state.active_jobs.items():
+            if job.state != "running":
+                continue
+            for chunk_id, chunk in job.chunks.items():
+                if chunk.state != ChunkState.COMMITTED:
+                    needed.setdefault(job_id, set()).add(chunk_id)
+        if not needed:
+            return
+
+        logger.info(f"New leader recovering chunks from nodes. Needed: { {k: len(v) for k, v in needed.items()} }")
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            for node_info in settings.parsed_cluster_nodes_info:
+                if node_info["node_id"] == settings.node_id:
+                    continue
+                try:
+                    res = await client.get(f"{node_info['public_url']}/api/v1/chunk_cache/list")
+                    if res.status_code != 200:
+                        continue
+                    remote_cache = res.json().get("cached_chunks", {})
+                    for job_id, chunk_ids in remote_cache.items():
+                        if job_id not in needed:
+                            continue
+                        for chunk_id in chunk_ids:
+                            if chunk_id not in needed[job_id]:
+                                continue
+                            # Fetch the actual data
+                            r2 = await client.get(
+                                f"{node_info['public_url']}/api/v1/chunk_cache/get",
+                                params={"job_id": job_id, "chunk_id": chunk_id}
+                            )
+                            if r2.status_code == 200:
+                                data = r2.json().get("result_data")
+                                if data:
+                                    self.commit_chunk_result(chunk_id, job_id, data)
+                                    needed[job_id].discard(chunk_id)
+                                    logger.info(f"Recovered chunk {chunk_id} from {node_info['node_id']}")
+                except Exception as e:
+                    logger.debug(f"Failed to recover chunks from {node_info['node_id']}: {e}")
 
     def _check_lease(self):
         now = time.time()
@@ -306,6 +400,8 @@ class LeaderRuntime:
         self.state.leader_last_heartbeat_at = now
         self.store.save(self.state)
         logger.info(f"Promoted to LEADER! New term: {self.state.term}")
+        # Schedule recovery of already-processed chunks from other nodes
+        asyncio.create_task(self._recover_chunks_from_nodes())
 
     async def _replicate_state(self):
         state_json = self.state.model_dump_json()
