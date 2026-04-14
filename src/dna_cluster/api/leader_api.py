@@ -94,6 +94,8 @@ async def control_status(request: Request):
             "public_url": node.public_url,
             "active_tasks": node.active_tasks,
             "processing_chunks": node.processing_chunks,
+            "gpu_available": node.gpu_available,
+            "gpu_name": node.gpu_name,
         }
     
     jobs_summary = {}

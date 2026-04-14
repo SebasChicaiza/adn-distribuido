@@ -17,7 +17,7 @@ from dna_cluster.processing.fasta_preprocess import FastaPreprocessor
 from dna_cluster.processing.hashing import get_file_hash
 from dna_cluster.processing.chunking import chunk_file
 from dna_cluster.processing.assemble_output import assemble_final_output
-from dna_cluster.processing.compare_cpu import compare_chunks
+from dna_cluster.processing.compare_gpu import compare_chunks, get_backend_info
 from dna_cluster.services.registration import register_node
 from dna_cluster.services.heartbeat import send_heartbeat
 
@@ -131,6 +131,9 @@ class LeaderRuntime:
             disk = shutil.disk_usage(settings.data_dir)
             self.node_info.disk_free_bytes = disk.free
             self.node_info.term = self.state.term
+            backend, gpu_name = get_backend_info()
+            self.node_info.gpu_available = backend != "numpy"
+            self.node_info.gpu_name = gpu_name or f"CPU-only ({backend})"
         except Exception:
             pass
 
