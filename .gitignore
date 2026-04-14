@@ -1,0 +1,50 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Environment Variables
+.env
+
+# Virtual Environment
+.venv/
+venv/
+ENV/
+env/
+
+# IDE / Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# Project data and state
+data/*
+!data/.keep
+
+# Pytest
+.pytest_cache/
