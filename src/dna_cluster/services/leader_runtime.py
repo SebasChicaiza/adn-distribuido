@@ -193,13 +193,19 @@ class LeaderRuntime:
     async def _execute_chunk_local(self, job_id: str, chunk: ChunkInfo):
         logger.info(f"Leader processing own chunk {chunk.chunk_id} for job {job_id}")
         try:
-            norm_a, _ = FastaPreprocessor.preprocess(settings.input_a_path)
-            norm_b, _ = FastaPreprocessor.preprocess(settings.input_b_path)
-            
-            result_str = compare_chunks(norm_a, norm_b, chunk.start_offset, chunk.length)
+            result_str = await asyncio.to_thread(
+                self._process_chunk_sync, chunk.start_offset, chunk.length
+            )
             self.commit_chunk_result(chunk.chunk_id, job_id, result_str)
         except Exception as e:
             logger.error(f"Leader failed to process local chunk: {e}")
+
+    @staticmethod
+    def _process_chunk_sync(start_offset: int, length: int) -> str:
+        """CPU-bound work: preprocess + compare. Runs in a thread."""
+        norm_a, _ = FastaPreprocessor.preprocess(settings.input_a_path)
+        norm_b, _ = FastaPreprocessor.preprocess(settings.input_b_path)
+        return compare_chunks(norm_a, norm_b, start_offset, length)
 
     async def _execute_chunk_remote(self, leader_url: str, data: dict):
         chunk_id = data["chunk_id"]
@@ -207,12 +213,11 @@ class LeaderRuntime:
         logger.info(f"Standby processing remote chunk {chunk_id} for job {job_id}")
         
         try:
-            norm_a, _ = FastaPreprocessor.preprocess(settings.input_a_path)
-            norm_b, _ = FastaPreprocessor.preprocess(settings.input_b_path)
+            result_str = await asyncio.to_thread(
+                self._process_chunk_sync, data["start_offset"], data["length"]
+            )
             
-            result_str = compare_chunks(norm_a, norm_b, data["start_offset"], data["length"])
-            
-            async with httpx.AsyncClient(timeout=10.0) as client:
+            async with httpx.AsyncClient(timeout=30.0) as client:
                 await client.post(
                     f"{leader_url}/api/v1/leader/chunk/result",
                     json={
@@ -344,7 +349,7 @@ class LeaderRuntime:
             for chunk_id, chunk in job.chunks.items():
                 if chunk.state in [ChunkState.ASSIGNED, ChunkState.IN_PROGRESS]:
                     assigned_node = self.state.nodes.get(chunk.assigned_node)
-                    if not assigned_node or (now - assigned_node.last_seen_at > 30.0) or (now - chunk.assigned_at > 60.0):
+                    if not assigned_node or (now - assigned_node.last_seen_at > 90.0) or (now - chunk.assigned_at > 300.0):
                         logger.warning(f"Chunk {chunk_id} stuck on node {chunk.assigned_node}. Requeuing.")
                         chunk.state = ChunkState.RETRY
                         chunk.assigned_node = None

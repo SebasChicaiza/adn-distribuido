@@ -3,8 +3,9 @@ from pathlib import Path
 def compare_chunks(file_a: Path, file_b: Path, start_offset: int, length: int) -> str:
     """
     Compare a specific byte range between two normalized files.
+    Uses binary mode to ensure seek() works with exact byte offsets.
     """
-    with open(file_a, "r", encoding="utf-8") as fa, open(file_b, "r", encoding="utf-8") as fb:
+    with open(file_a, "rb") as fa, open(file_b, "rb") as fb:
         fa.seek(start_offset)
         fb.seek(start_offset)
         
@@ -14,16 +15,16 @@ def compare_chunks(file_a: Path, file_b: Path, start_offset: int, length: int) -
         result = []
         max_len = max(len(chunk_a), len(chunk_b))
         for i in range(max_len):
-            char_a = chunk_a[i] if i < len(chunk_a) else ""
-            char_b = chunk_b[i] if i < len(chunk_b) else ""
+            byte_a = chunk_a[i:i+1] if i < len(chunk_a) else b""
+            byte_b = chunk_b[i:i+1] if i < len(chunk_b) else b""
             
-            if not char_a and char_b:
+            if not byte_a and byte_b:
                 result.append(".")
-            elif char_a and not char_b:
+            elif byte_a and not byte_b:
                 result.append(".")
-            elif char_a in ("N", "n"):
-                result.append(char_a)
-            elif char_a == char_b:
+            elif byte_a in (b"N", b"n"):
+                result.append(byte_a.decode("ascii", errors="replace"))
+            elif byte_a == byte_b:
                 result.append("+")
             else:
                 result.append(".")
