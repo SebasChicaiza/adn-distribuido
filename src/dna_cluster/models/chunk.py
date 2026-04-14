@@ -17,4 +17,5 @@ class ChunkInfo(BaseModel):
     length: int
     state: str = ChunkState.PENDING
     assigned_node: Optional[str] = None
+    assigned_at: float = 0.0
     result_hash: Optional[str] = None

@@ -1,7 +1,8 @@
 from fastapi import APIRouter, HTTPException, Request
 from dna_cluster.api.schemas import (
     RegisterRequest, ChunkUpdateRequest, JobCreateRequest, 
-    WorkRequest, WorkResponse, ChunkResultRequest, StateSyncRequest
+    WorkRequest, WorkResponse, ChunkResultRequest, StateSyncRequest,
+    SetPriorityRequest, SetSchedulerModeRequest
 )
 from dna_cluster.models.node import NodeInfo
 import logging
@@ -70,3 +71,61 @@ async def sync_state(req: StateSyncRequest, request: Request):
         raise HTTPException(status_code=400, detail="Cannot receive state sync")
     runtime.receive_state_sync(req.state_json)
     return {"status": "synced"}
+
+@router.get("/control/status")
+async def control_status(request: Request):
+    runtime = request.app.state.runtime
+    if not hasattr(runtime, "is_leader") or not runtime.is_leader:
+        raise HTTPException(status_code=403, detail="Not the leader")
+    return {
+        "scheduler_mode": runtime.state.scheduler_mode, 
+        "pinned_node_id": runtime.state.pinned_node_id, 
+        "nodes": runtime.state.nodes
+    }
+
+@router.post("/control/disable_node")
+async def disable_node(req: WorkRequest, request: Request):
+    runtime = request.app.state.runtime
+    if not hasattr(runtime, "is_leader") or not runtime.is_leader:
+        raise HTTPException(status_code=403, detail="Not the leader")
+    node = runtime.state.nodes.get(req.node_id)
+    if node:
+        node.is_disabled = True
+        runtime.store.save(runtime.state)
+        return {"status": "ok", "node": node.node_id, "is_disabled": True}
+    raise HTTPException(status_code=404, detail="Node not found")
+
+@router.post("/control/enable_node")
+async def enable_node(req: WorkRequest, request: Request):
+    runtime = request.app.state.runtime
+    if not hasattr(runtime, "is_leader") or not runtime.is_leader:
+        raise HTTPException(status_code=403, detail="Not the leader")
+    node = runtime.state.nodes.get(req.node_id)
+    if node:
+        node.is_disabled = False
+        runtime.store.save(runtime.state)
+        return {"status": "ok", "node": node.node_id, "is_disabled": False}
+    raise HTTPException(status_code=404, detail="Node not found")
+
+@router.post("/control/set_scheduler_mode")
+async def set_scheduler_mode(req: SetSchedulerModeRequest, request: Request):
+    runtime = request.app.state.runtime
+    if not hasattr(runtime, "is_leader") or not runtime.is_leader:
+        raise HTTPException(status_code=403, detail="Not the leader")
+    runtime.state.scheduler_mode = req.mode
+    if req.pinned_node_id:
+        runtime.state.pinned_node_id = req.pinned_node_id
+    runtime.store.save(runtime.state)
+    return {"status": "ok", "mode": req.mode}
+
+@router.post("/control/set_priority")
+async def set_priority(req: SetPriorityRequest, request: Request):
+    runtime = request.app.state.runtime
+    if not hasattr(runtime, "is_leader") or not runtime.is_leader:
+        raise HTTPException(status_code=403, detail="Not the leader")
+    node = runtime.state.nodes.get(req.node_id)
+    if node:
+        node.leader_priority = req.priority
+        runtime.store.save(runtime.state)
+        return {"status": "ok", "node": node.node_id, "priority": req.priority}
+    raise HTTPException(status_code=404, detail="Node not found")

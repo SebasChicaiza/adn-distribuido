@@ -5,6 +5,7 @@ import httpx
 from pathlib import Path
 from typing import Optional, Tuple, Dict
 from dna_cluster.models.cluster import ClusterState
+from dna_cluster.models.node import NodeInfo
 from dna_cluster.models.job import JobInfo
 from dna_cluster.models.chunk import ChunkState, ChunkInfo
 from dna_cluster.storage.state_store import StateStore
@@ -67,15 +68,15 @@ class LeaderRuntime:
 
     def _attempt_promotion(self):
         my_info = self._get_my_node_info()
-        # Find healthy standbys. In a real system, we'd ping them. Here we assume config priority dictates order.
-        # Check if any higher priority node is alive. For simplicity, we just promote if we are highest priority 
-        # among those that seem active, or just strictly based on config priority assuming failed nodes won't fight.
-        # Since this is a practical student project failover:
-        higher_priority_nodes = [n for n in settings.parsed_cluster_nodes_info if n["priority"] > my_info["priority"]]
+        my_priority = self.state.nodes.get(settings.node_id).leader_priority if settings.node_id in self.state.nodes else my_info["priority"]
         
-        # If we have the highest priority, or if we assume higher ones are dead (simplified logic):
-        # We will aggressively promote if we haven't heard from the leader.
-        # A more robust check would ping higher_priority_nodes first.
+        now = time.time()
+        for n_id, n in self.state.nodes.items():
+            if n_id != settings.node_id and not n.is_disabled and (now - n.last_seen_at < 30.0):
+                if n.leader_priority > my_priority:
+                    logger.info(f"Skipping promotion: node {n_id} has higher priority ({n.leader_priority} > {my_priority}) and is alive.")
+                    return
+
         logger.info(f"Node {settings.node_id} attempting promotion to leader.")
         self.state.term += 1
         self.state.leader_id = settings.node_id
@@ -112,12 +113,36 @@ class LeaderRuntime:
         else:
             logger.warning("Received state sync with older term.")
 
+    def _check_stuck_chunks(self):
+        now = time.time()
+        for job_id, job in self.state.active_jobs.items():
+            if job.state != "running":
+                continue
+            for chunk_id, chunk in job.chunks.items():
+                if chunk.state in [ChunkState.ASSIGNED, ChunkState.IN_PROGRESS]:
+                    assigned_node = self.state.nodes.get(chunk.assigned_node)
+                    if not assigned_node or (now - assigned_node.last_seen_at > 30.0) or (now - chunk.assigned_at > 60.0):
+                        logger.warning(f"Chunk {chunk_id} stuck on node {chunk.assigned_node}. Requeuing.")
+                        chunk.state = ChunkState.RETRY
+                        chunk.assigned_node = None
+                        self.store.save(self.state)
+
     def register_node(self, node_info):
+        node_info.last_seen_at = time.time()
+        existing = self.state.nodes.get(node_info.node_id)
+        if existing:
+            node_info.is_disabled = existing.is_disabled
+            node_info.leader_priority = existing.leader_priority
         self.state.nodes[node_info.node_id] = node_info
         self.store.save(self.state)
         logger.info(f"Registered node {node_info.node_id}")
 
     def update_node_heartbeat(self, node_info):
+        node_info.last_seen_at = time.time()
+        existing = self.state.nodes.get(node_info.node_id)
+        if existing:
+            node_info.is_disabled = existing.is_disabled
+            node_info.leader_priority = existing.leader_priority
         self.state.nodes[node_info.node_id] = node_info
 
     def create_job(self, job_id: str):
@@ -126,7 +151,15 @@ class LeaderRuntime:
             raise ValueError(f"Job {job_id} already exists")
         
         norm_a, meta_a = FastaPreprocessor.preprocess(settings.input_a_path)
-        chunks = chunk_file(norm_a, job_id)
+        
+        chunk_size = settings.chunk_size_bytes
+        for n in self.state.nodes.values():
+            if not n.is_disabled and n.available_ram_bytes > 0 and n.available_ram_bytes < 2 * 1024**3:
+                chunk_size = 5 * 1024 * 1024
+                logger.info(f"Found low RAM node {n.node_id}, adjusting chunk size to {chunk_size} bytes")
+                break
+
+        chunks = chunk_file(norm_a, job_id, chunk_size)
         
         job_info = JobInfo(
             job_id=job_id,
@@ -142,7 +175,31 @@ class LeaderRuntime:
         self.store.save(self.state)
         logger.info(f"Job {job_id} created with {len(chunks)} chunks.")
 
+    def _calculate_node_score(self, node: NodeInfo) -> int:
+        if node.is_disabled: return -1000
+        score = 0
+        if node.available_ram_bytes > 8 * 1024**3: score += 50
+        elif node.available_ram_bytes > 4 * 1024**3: score += 20
+        score += node.cpu_count * 5
+        score -= node.active_tasks * 20
+        return score
+
     def request_work(self, node_id: str) -> Optional[Tuple[str, ChunkInfo]]:
+        node = self.state.nodes.get(node_id)
+        if not node or node.is_disabled:
+            return None
+
+        if self.state.scheduler_mode == "pin_single_node":
+            if node_id != self.state.pinned_node_id:
+                return None
+                
+        elif self.state.scheduler_mode == "weighted":
+            my_score = self._calculate_node_score(node)
+            now = time.time()
+            best_score = max([self._calculate_node_score(n) for n in self.state.nodes.values() if (now - n.last_seen_at < 30.0)], default=my_score)
+            if my_score < best_score - 30:
+                return None
+
         for job_id, job in self.state.active_jobs.items():
             if job.state != "running":
                 continue
@@ -150,6 +207,7 @@ class LeaderRuntime:
                 if chunk.state == ChunkState.PENDING or chunk.state == ChunkState.RETRY:
                     chunk.state = ChunkState.ASSIGNED
                     chunk.assigned_node = node_id
+                    chunk.assigned_at = time.time()
                     self.store.save(self.state)
                     return job_id, chunk
         return None

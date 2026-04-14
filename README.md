@@ -148,6 +148,48 @@ curl -X POST http://localhost:8001/api/v1/leader/job/create \
 
 Your leader node will generate hundreds of chunks. The next time your friends' nodes poll you via ngrok, they will automatically be handed a piece of the work. You'll see the `.res` chunks being uploaded back to your machine until the job completes and auto-assembles the final file!
 
+## Operational Scheduling Controls
+
+The Leader exposes an API to dynamically control failover priorities and scheduling behavior based on node telemetry (RAM, CPU).
+
+**Check Cluster Status:**
+```bash
+curl http://localhost:8001/api/v1/leader/control/status
+```
+
+**Change Standby Order (Priority):**
+```bash
+curl -X POST http://localhost:8001/api/v1/leader/control/set_priority \
+     -H "Content-Type: application/json" \
+     -d '{"node_id": "node_nico", "priority": 150}'
+```
+
+**Pin Work to a Single Node:**
+Force the cluster to ONLY assign chunks to one specific node.
+```bash
+curl -X POST http://localhost:8001/api/v1/leader/control/set_scheduler_mode \
+     -H "Content-Type: application/json" \
+     -d '{"mode": "pin_single_node", "pinned_node_id": "node_juanjo"}'
+```
+
+**Enable Weighted (Capacity-Aware) Scheduling:**
+The leader evaluates node CPU and available RAM to determine who gets chunks and dynamically shrinks chunk sizes if it detects nodes with less than 2GB of RAM.
+```bash
+curl -X POST http://localhost:8001/api/v1/leader/control/set_scheduler_mode \
+     -H "Content-Type: application/json" \
+     -d '{"mode": "weighted"}'
+```
+
+**Disable/Enable a Node Manually:**
+```bash
+curl -X POST http://localhost:8001/api/v1/leader/control/disable_node -H "Content-Type: application/json" -d '{"node_id": "node_david"}'
+```
+
+## Validating Failure Handling
+- **Leader Death:** Hit `CTRL+C` on the active leader. Within 15 seconds, the highest priority standby will detect the timeout, increment the term, and promote itself to Leader. Workers will instantly reconnect to the new Leader and resume.
+- **Worker Death:** Hit `CTRL+C` on a worker currently processing a chunk. The active leader will detect the missed heartbeats and automatically requeue the stuck chunk back to `RETRY` after 60 seconds, assigning it to the next available worker.
+- **Worker Rejoin:** Start the worker again; it will sync state, re-register, and pull work normally.
+
 ## Testing
 
 Run unit tests with pytest:

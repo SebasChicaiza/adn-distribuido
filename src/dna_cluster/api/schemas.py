@@ -42,3 +42,11 @@ class ChunkUpdateRequest(BaseModel):
     chunk_id: str
     state: str
     result_hash: Optional[str] = None
+
+class SetPriorityRequest(BaseModel):
+    node_id: str
+    priority: int
+
+class SetSchedulerModeRequest(BaseModel):
+    mode: str
+    pinned_node_id: Optional[str] = None

@@ -4,9 +4,10 @@ from typing import List
 from dna_cluster.models.chunk import ChunkInfo
 from dna_cluster.config import settings
 
-def chunk_file(normalized_path: Path, job_id: str) -> List[ChunkInfo]:
+def chunk_file(normalized_path: Path, job_id: str, chunk_size: int = None) -> List[ChunkInfo]:
     file_size = normalized_path.stat().st_size
-    chunk_size = settings.chunk_size_bytes
+    if chunk_size is None:
+        chunk_size = settings.chunk_size_bytes
     num_chunks = math.ceil(file_size / chunk_size) if file_size > 0 else 0
     
     chunks = []
