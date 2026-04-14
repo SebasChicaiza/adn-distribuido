@@ -40,6 +40,7 @@ class LeaderRuntime:
         
         self.is_leader = False
         self.is_processing = False
+        self._registered_with_leader: str | None = None
         
         if self.state.term == 0:
             self.state.term = 1
@@ -146,14 +147,16 @@ class LeaderRuntime:
         if work:
             job_id, chunk = work
             self.is_processing = True
-            try:
-                # Direct execution as leader
-                await self._execute_chunk_local(job_id, chunk)
-            finally:
-                self.is_processing = False
+            asyncio.create_task(self._run_local_chunk(job_id, chunk))
+
+    async def _run_local_chunk(self, job_id: str, chunk):
+        try:
+            await self._execute_chunk_local(job_id, chunk)
+        finally:
+            self.is_processing = False
 
     async def _standby_worker_step(self):
-        if self.is_processing or not self.state.leader_id or self.is_leader:
+        if not self.state.leader_id or self.is_leader:
             return
         
         # Don't try to register with ourselves
@@ -173,13 +176,20 @@ class LeaderRuntime:
             return
         
         try:
-            # Register and Heartbeat to show up in dashboard
-            registered = await register_node(leader_url, self.node_info)
-            if not registered:
-                return  # Don't poll for work if we can't even register
+            # Register only once per leader (reduces log spam)
+            if self._registered_with_leader != self.state.leader_id:
+                registered = await register_node(leader_url, self.node_info)
+                if not registered:
+                    return
+                self._registered_with_leader = self.state.leader_id
+            
+            # Always send heartbeat so leader knows we're alive
             await send_heartbeat(leader_url, self.node_info)
             
-            # Poll for work
+            # Only request work if not already processing a chunk
+            if self.is_processing:
+                return
+            
             async with httpx.AsyncClient(timeout=5.0) as client:
                 res = await client.post(
                     f"{leader_url}/api/v1/leader/chunk/request_work",
@@ -189,12 +199,16 @@ class LeaderRuntime:
                     data = res.json()
                     if data.get("has_work"):
                         self.is_processing = True
-                        try:
-                            await self._execute_chunk_remote(leader_url, data)
-                        finally:
-                            self.is_processing = False
+                        asyncio.create_task(self._run_remote_chunk(leader_url, data))
         except Exception as e:
+            self._registered_with_leader = None  # Re-register on next cycle
             logger.debug(f"Standby worker poll failed: {e}")
+
+    async def _run_remote_chunk(self, leader_url: str, data: dict):
+        try:
+            await self._execute_chunk_remote(leader_url, data)
+        finally:
+            self.is_processing = False
 
     async def _execute_chunk_local(self, job_id: str, chunk: ChunkInfo):
         logger.info(f"Leader processing own chunk {chunk.chunk_id} for job {job_id}")
@@ -204,7 +218,13 @@ class LeaderRuntime:
             )
             self.commit_chunk_result(chunk.chunk_id, job_id, result_str)
         except Exception as e:
-            logger.error(f"Leader failed to process local chunk: {e}")
+            logger.error(f"Leader failed to process local chunk {chunk.chunk_id}: {e}")
+            # Reset chunk so it can be retried by any node
+            job = self.state.active_jobs.get(job_id)
+            if job and chunk.chunk_id in job.chunks:
+                job.chunks[chunk.chunk_id].state = ChunkState.PENDING
+                job.chunks[chunk.chunk_id].assigned_node = None
+                self.store.save(self.state)
 
     @staticmethod
     def _process_chunk_sync(start_offset: int, length: int) -> str:
@@ -235,7 +255,7 @@ class LeaderRuntime:
                 )
             logger.info(f"Successfully uploaded result for {chunk_id}")
         except Exception as e:
-            logger.error(f"Standby failed to process/upload chunk: {e}")
+            logger.error(f"Standby failed to process/upload chunk {chunk_id}: {e}")
 
     def _check_lease(self):
         now = time.time()
@@ -388,7 +408,9 @@ class LeaderRuntime:
         if job_id in self.state.active_jobs:
             raise ValueError(f"Job {job_id} already exists")
         
+        # Preprocess both files upfront to catch errors early
         norm_a, _ = FastaPreprocessor.preprocess(settings.input_a_path)
+        FastaPreprocessor.preprocess(settings.input_b_path)
         
         # Determine chunk size based on the minimum available RAM across active nodes
         chunk_size = settings.chunk_size_bytes

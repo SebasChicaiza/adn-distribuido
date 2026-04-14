@@ -72,11 +72,11 @@ def test_weighted_scheduling_prefers_strong_node(leader):
     assert res[1].assigned_node == "strong"
 
 def test_stuck_chunk_requeue(leader):
-    n1 = NodeInfo(node_id="n1", role_mode="worker", leader_priority=10, public_url="", last_seen_at=time.time() - 40.0) # Dead node
+    n1 = NodeInfo(node_id="n1", role_mode="worker", leader_priority=10, public_url="", last_seen_at=time.time() - 100.0) # Dead node (>90s)
     leader.register_node(n1)
     
     job = JobInfo(job_id="job3", input_a_hash="", input_b_hash="", state="running")
-    chunk = ChunkInfo(chunk_id="c3", job_id="job3", start_offset=0, length=10, state=ChunkState.ASSIGNED, assigned_node="n1", assigned_at=time.time() - 70.0)
+    chunk = ChunkInfo(chunk_id="c3", job_id="job3", start_offset=0, length=10, state=ChunkState.ASSIGNED, assigned_node="n1", assigned_at=time.time() - 310.0)
     job.chunks["c3"] = chunk
     leader.state.active_jobs["job3"] = job
     

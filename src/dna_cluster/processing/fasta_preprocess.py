@@ -20,8 +20,8 @@ class FastaPreprocessor:
         layout = LayoutMetadata()
         current_offset = 0
 
-        with open(input_path, "r", encoding="utf-8") as fin, \
-             open(normalized_path, "w", encoding="utf-8") as fnorm:
+        with open(input_path, "r", encoding="ascii", errors="ignore") as fin, \
+             open(normalized_path, "w", encoding="ascii") as fnorm:
             for line in fin:
                 line = line.strip()
                 if not line:
