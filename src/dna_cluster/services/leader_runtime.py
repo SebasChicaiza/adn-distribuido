@@ -80,7 +80,8 @@ class LeaderRuntime:
                         await self._leader_worker_step()
                 else:
                     self._check_lease()
-                    if "worker" in settings.role_mode:
+                    # Re-check is_leader because _check_lease might have promoted us
+                    if not self.is_leader and "worker" in settings.role_mode:
                         await self._standby_worker_step()
             except Exception as e:
                 logger.error(f"Error in leader run_loop: {e}")
@@ -102,6 +103,7 @@ class LeaderRuntime:
     def _update_my_node_in_state(self):
         self.node_info.last_seen_at = time.time()
         self.node_info.state = "ready" if not self.is_processing else "busy"
+        self.node_info.term = self.state.term
         self.state.nodes[settings.node_id] = self.node_info
         self.state.leader_last_heartbeat_at = time.time()
 
@@ -119,7 +121,11 @@ class LeaderRuntime:
                 self.is_processing = False
 
     async def _standby_worker_step(self):
-        if self.is_processing or not self.state.leader_id:
+        if self.is_processing or not self.state.leader_id or self.is_leader:
+            return
+        
+        # Don't try to register with ourselves if we are the leader (redundant check)
+        if self.state.leader_id == settings.node_id:
             return
         
         # Get leader URL from config
