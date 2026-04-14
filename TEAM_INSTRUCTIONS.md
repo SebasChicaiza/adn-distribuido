@@ -76,10 +76,25 @@ In a **new, separate terminal**, run your specific ngrok command to expose port 
 - **David:** `ngrok http 8001 --domain=magnesium-slicer-exhume.ngrok-free.dev`
 - **Juanjo:** `ngrok http 8001 --domain=juanjo.ngrok.app` *(Make sure this matches your actual reserved domain)*
 
-### 3. Start the Manager Node
-Go back to your main terminal (where your `.venv` is active) and start the system:
+### 3. Start the Manager Node (or Node Agent)
+Before starting, it is highly recommended to clean any old local state or test data so you start fresh:
+
+**On Linux/macOS:**
 ```bash
+rm -rf data/state/* data/work/* data/output/* data/normalized/*
+```
+**On Windows (PowerShell):**
+```powershell
+Remove-Item -Recurse -Force data\state\*, data\work\*, data\output\*, data\normalized\*
+```
+
+Once cleaned, go back to your main terminal (where your `.venv` is active) and start the system:
+```bash
+# If you are Sebas (Leader) or a Standby (Juanjo):
 python -m dna_cluster.cli.run_manager
+
+# If you are strictly a Worker (Nico, Jhonny, David):
+python -m dna_cluster.cli.run_node
 ```
 Because of the `CLUSTER_NODES` config, **Sebas (Priority 100)** will automatically become the Leader. Everyone else will connect to Sebas, sync state, and wait for work.
 
