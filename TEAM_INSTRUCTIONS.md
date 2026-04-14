@@ -56,12 +56,16 @@ NODE_ID=node_sebas
 # Use 'worker_standby' if you want to be a potential leader, or 'worker' for pure processing.
 ROLE_MODE=worker_standby
 
-# Set this to YOUR ngrok URL. 
-# Everyone uses port 8001 by default.
-PUBLIC_URL=https://kristy-vertebral-toilfully.ngrok-free.dev
+# Set this to YOUR specific IP or ngrok URL.
+# Sebas:  http://192.168.208.96:8001
+# Juanjo: http://192.168.208.92:8001
+# Nico:   http://192.168.210.44:8001
+# Jhonny: http://192.168.210.40:8001
+# David:  https://magnesium-slicer-exhume.ngrok-free.dev
+PUBLIC_URL=http://192.168.208.96:8001
 
-# Do NOT change this line unless the team agrees on new priorities.
-CLUSTER_NODES=node_sebas,https://kristy-vertebral-toilfully.ngrok-free.dev,100;node_juanjo,https://ducking-photo-tiny.ngrok-free.dev,90;node_nico,https://graves-angelfish-disclose.ngrok-free.dev,80;node_jhonny,https://item-overrun-glorified.ngrok-free.dev,70;node_david,https://magnesium-slicer-exhume.ngrok-free.dev,60
+# DO NOT CHANGE THIS LINE.
+CLUSTER_NODES=node_sebas,http://192.168.208.96:8001,100;node_juanjo,http://192.168.208.92:8001,90;node_nico,http://192.168.210.44:8001,80;node_jhonny,http://192.168.210.40:8001,70;node_david,https://magnesium-slicer-exhume.ngrok-free.dev,60
 
 DATA_DIR=./data
 INPUT_A_PATH=./data/input/a.fna
@@ -69,14 +73,10 @@ INPUT_B_PATH=./data/input/b.fna
 LOG_LEVEL=INFO
 ```
 
-### 2. Open your Ngrok Tunnel
-In a **new, separate terminal**, run your specific ngrok command to expose port **8001** to the internet:
-
-- **Sebas:** `ngrok http 8001 --domain=kristy-vertebral-toilfully.ngrok-free.dev`
-- **Juanjo:** `ngrok http 8001 --domain=ducking-photo-tiny.ngrok-free.dev`
-- **Nico:** `ngrok http 8001 --domain=graves-angelfish-disclose.ngrok-free.dev`
-- **Jhonny:** `ngrok http 8001 --domain=item-overrun-glorified.ngrok-free.dev`
-- **David:** `ngrok http 8001 --domain=magnesium-slicer-exhume.ngrok-free.dev`
+### 2. Open Connectivity
+- **Sebas, Juanjo, Nico, Jhonny:** Ensure you are on the university network and port 8001 is open.
+- **David:** Expose port 8001 using ngrok:
+  `ngrok http 8001 --domain=magnesium-slicer-exhume.ngrok-free.dev`
 
 ### 3. Start the Manager Node
 Before starting, it is highly recommended to clean any old local state or test data so you start fresh:
