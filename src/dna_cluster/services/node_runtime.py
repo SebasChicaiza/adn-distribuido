@@ -155,19 +155,3 @@ class NodeRuntime:
             raise e # If it was a network error during upload, this will drop current_leader_url, which is good.
         finally:
             self.node_info.state = "ready"
-ader_url}/api/v1/leader/chunk/result",
-                    json={
-                        "node_id": self.node_info.node_id,
-                        "chunk_id": chunk_id,
-                        "job_id": job_id,
-                        "result_data": result_str
-                    }
-                )
-                res.raise_for_status()
-            logger.info(f"Successfully uploaded {chunk_id}")
-            
-        except Exception as e:
-            logger.error(f"Failed to process/upload chunk {chunk_id}: {e}")
-            raise e # If it was a network error during upload, this will drop current_leader_url, which is good.
-        finally:
-            self.node_info.state = "ready"
