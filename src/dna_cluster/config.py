@@ -7,17 +7,24 @@ class Settings(BaseSettings):
     node_id: str = "node_local"
     role_mode: str = "worker" # Can be 'worker', 'worker_standby', 'standby'
     leader_priority: int = 10
-    public_url: str = "http://localhost:8000"
+    public_url: str = "http://localhost:8001"
     cluster_nodes: str = "" # Format: node_id,public_url,priority;node_id,public_url,priority
     data_dir: Path = Path("./data")
     input_a_path: Path = Path("./data/input/a.fna")
     input_b_path: Path = Path("./data/input/b.fna")
     log_level: str = "INFO"
     chunk_size_bytes: int = 100 * 1024 * 1024 # 100MB chunk for local processing
-    api_port: int = 8000
+    api_port: int = 8001
     api_host: str = "0.0.0.0"
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
+
+    @property
+    def my_priority(self) -> int:
+        for n in self.parsed_cluster_nodes_info:
+            if n["node_id"] == self.node_id:
+                return n["priority"]
+        return self.leader_priority
 
     @property
     def parsed_cluster_nodes_info(self) -> List[dict]:

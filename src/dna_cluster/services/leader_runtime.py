@@ -2,6 +2,8 @@ import logging
 import time
 import asyncio
 import httpx
+import psutil
+import shutil
 from pathlib import Path
 from typing import Optional, Tuple, Dict
 from dna_cluster.models.cluster import ClusterState
@@ -12,6 +14,7 @@ from dna_cluster.storage.state_store import StateStore
 from dna_cluster.storage.paths import StoragePaths
 from dna_cluster.config import settings
 from dna_cluster.processing.fasta_preprocess import FastaPreprocessor
+from dna_cluster.processing.hashing import get_file_hash
 from dna_cluster.processing.chunking import chunk_file
 from dna_cluster.processing.assemble_output import assemble_final_output
 
@@ -33,9 +36,12 @@ class LeaderRuntime:
             if highest_priority_node["node_id"] == settings.node_id:
                 self.is_leader = True
                 self.state.leader_id = settings.node_id
+                self.state.leader_last_heartbeat_at = time.time()
             self.store.save(self.state)
         elif self.state.leader_id == settings.node_id:
             self.is_leader = True
+            # Re-heartbeat on restart
+            self.state.leader_last_heartbeat_at = time.time()
 
     def _get_my_node_info(self):
         for n in settings.parsed_cluster_nodes_info:
@@ -74,8 +80,11 @@ class LeaderRuntime:
         node.last_seen_at = time.time()
         node.state = "ready"
         node.term = self.state.term
-        import psutil
-        import shutil
+        
+        # If I'm the leader, update my own heartbeat timestamp
+        if self.is_leader:
+            self.state.leader_last_heartbeat_at = time.time()
+            
         try:
             mem = psutil.virtual_memory()
             node.available_ram_bytes = mem.available
@@ -90,6 +99,8 @@ class LeaderRuntime:
 
     def _check_lease(self):
         if not self.state.leader_id:
+            # If we don't know any leader, check if we should promote ourselves
+            self._attempt_promotion()
             return
 
         time_since_heartbeat = time.time() - self.state.leader_last_heartbeat_at
@@ -99,15 +110,17 @@ class LeaderRuntime:
 
     def _attempt_promotion(self):
         my_info = self._get_my_node_info()
-        my_priority = self.state.nodes.get(settings.node_id).leader_priority if settings.node_id in self.state.nodes else my_info["priority"]
+        my_priority = my_info["priority"]
         
         now = time.time()
+        # Check if any alive node has a higher priority than me
         for n_id, n in self.state.nodes.items():
             if n_id != settings.node_id and not n.is_disabled and (now - n.last_seen_at < 30.0):
                 if n.leader_priority > my_priority:
-                    logger.info(f"Skipping promotion: node {n_id} has higher priority ({n.leader_priority} > {my_priority}) and is alive.")
+                    logger.debug(f"Skipping promotion: node {n_id} has higher priority ({n.leader_priority} > {my_priority}) and is alive.")
                     return
 
+        # If I have the highest priority among alive nodes, promote myself
         logger.info(f"Node {settings.node_id} attempting promotion to leader.")
         self.state.term += 1
         self.state.leader_id = settings.node_id
@@ -130,18 +143,31 @@ class LeaderRuntime:
                     logger.debug(f"Failed to replicate state to {node_info['node_id']}: {e}")
 
     def receive_state_sync(self, state_json: str):
-        if self.is_leader:
-            logger.warning("Received state sync but I am the leader. Ignoring.")
-            return
-            
         new_state = ClusterState.model_validate_json(state_json)
-        if new_state.term >= self.state.term:
+        
+        # Priority Check: Should I yield?
+        my_info = self._get_my_node_info()
+        leader_info = next((n for n in settings.parsed_cluster_nodes_info if n["node_id"] == new_state.leader_id), None)
+        
+        should_yield = False
+        if leader_info and leader_info["priority"] > my_info["priority"]:
+            should_yield = True
+        
+        if self.is_leader:
+            if should_yield:
+                logger.info(f"Yielding leadership to higher priority node {new_state.leader_id} (Term {new_state.term})")
+                self.is_leader = False
+            else:
+                logger.warning(f"Ignoring state sync from node {new_state.leader_id} (Term {new_state.term}) because I am a higher or equal priority leader.")
+                return
+
+        if new_state.term >= self.state.term or should_yield:
             self.state = new_state
             self.state.leader_last_heartbeat_at = time.time()
             self.store.save(self.state)
             logger.debug(f"State synced from leader {self.state.leader_id}, term {self.state.term}")
         else:
-            logger.warning("Received state sync with older term.")
+            logger.warning(f"Rejecting state sync with older term ({new_state.term} < {self.state.term}) from {new_state.leader_id}.")
 
     def _check_stuck_chunks(self):
         now = time.time()

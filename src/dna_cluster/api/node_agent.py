@@ -32,7 +32,7 @@ async def get_status(request: Request):
     node_info = NodeInfo(
         node_id=settings.node_id,
         role_mode=settings.role_mode,
-        leader_priority=settings.leader_priority,
+        leader_priority=settings.my_priority,
         public_url=settings.public_url,
         state=state,
         term=term

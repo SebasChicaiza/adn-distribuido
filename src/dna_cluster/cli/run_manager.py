@@ -1,4 +1,6 @@
 import uvicorn
+import asyncio
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from dna_cluster.api.leader_api import router as leader_router
 from dna_cluster.api.node_agent import router as node_router
@@ -12,17 +14,18 @@ def main():
     runtime = LeaderRuntime()
     runtime.start()
 
-    app = FastAPI(title=f"DNA Leader Agent ({settings.node_id})")
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        task = asyncio.create_task(runtime.run_loop())
+        yield
+        task.cancel()
+
+    app = FastAPI(title=f"DNA Leader Agent ({settings.node_id})", lifespan=lifespan)
     app.state.runtime = runtime
     app.include_router(node_router, prefix="/api/v1")
     app.include_router(leader_router, prefix="/api/v1/leader")
     
-    import asyncio
-    @app.on_event("startup")
-    async def startup_event():
-        asyncio.create_task(runtime.run_loop())
-    
-    uvicorn.run(app, host=settings.api_host, port=settings.api_port + 1) # run manager on different port for local testing
+    uvicorn.run(app, host=settings.api_host, port=settings.api_port)
 
 if __name__ == "__main__":
     main()

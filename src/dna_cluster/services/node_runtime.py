@@ -1,6 +1,10 @@
 import logging
 import asyncio
 import httpx
+import psutil
+import shutil
+import time
+from typing import Optional, Tuple
 from dna_cluster.config import settings
 from dna_cluster.models.node import NodeInfo
 from dna_cluster.processing.fasta_preprocess import FastaPreprocessor
@@ -16,7 +20,7 @@ class NodeRuntime:
         self.node_info = NodeInfo(
             node_id=settings.node_id,
             role_mode=settings.role_mode,
-            leader_priority=settings.leader_priority,
+            leader_priority=settings.my_priority,
             public_url=settings.public_url,
             state="starting"
         )
@@ -26,6 +30,10 @@ class NodeRuntime:
     @property
     def state(self):
         return self.node_info.state
+
+    @property
+    def role_mode(self):
+        return self.node_info.role_mode
 
     def start(self):
         logger.info(f"Starting NodeRuntime for {self.node_info.node_id} in {self.role_mode} mode")
@@ -39,15 +47,24 @@ class NodeRuntime:
             self.node_info.state = "failed"
             logger.error(f"Preprocessing failed: {e}")
 
-    @property
-    def role_mode(self):
-        return self.node_info.role_mode
+    def _update_telemetry(self):
+        try:
+            mem = psutil.virtual_memory()
+            self.node_info.available_ram_bytes = mem.available
+            self.node_info.total_ram_bytes = mem.total
+            self.node_info.cpu_count = psutil.cpu_count(logical=True) or 1
+            self.node_info.cpu_load_percent = psutil.cpu_percent()
+            disk = shutil.disk_usage(settings.data_dir)
+            self.node_info.disk_free_bytes = disk.free
+        except Exception:
+            pass
 
     async def _find_leader(self) -> bool:
         best_leader_url = None
         highest_term = -1
+        best_priority = -1
 
-        async with httpx.AsyncClient(timeout=2.0) as client:
+        async with httpx.AsyncClient(timeout=5.0) as client:
             for node_info in settings.parsed_cluster_nodes_info:
                 try:
                     res = await client.get(f"{node_info['public_url']}/api/v1/status")
@@ -55,8 +72,13 @@ class NodeRuntime:
                         data = res.json()
                         if data.get("is_leader"):
                             term = data.get("term", 0)
+                            prio = node_info["priority"]
                             if term > highest_term:
                                 highest_term = term
+                                best_priority = prio
+                                best_leader_url = node_info["public_url"]
+                            elif term == highest_term and prio > best_priority:
+                                best_priority = prio
                                 best_leader_url = node_info["public_url"]
                 except Exception:
                     pass
@@ -70,7 +92,12 @@ class NodeRuntime:
         return False
 
     async def run_loop(self):
+        # Wait until ready
+        while self.node_info.state == "starting" or self.node_info.state == "preprocessing":
+            await asyncio.sleep(1)
+            
         if self.node_info.state != "ready":
+            logger.error(f"Node loop aborted because state is {self.node_info.state}")
             return
         
         while True:
@@ -127,6 +154,7 @@ class NodeRuntime:
             norm_a, _ = FastaPreprocessor.preprocess(settings.input_a_path)
             norm_b, _ = FastaPreprocessor.preprocess(settings.input_b_path)
             
+            from dna_cluster.processing.compare_cpu import compare_chunks
             result_str = compare_chunks(norm_a, norm_b, start_offset, length)
             
             work_dir = StoragePaths.get_work_dir() / job_id

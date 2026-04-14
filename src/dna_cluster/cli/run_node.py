@@ -1,4 +1,6 @@
 import uvicorn
+import asyncio
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from dna_cluster.api.node_agent import router as node_router
 from dna_cluster.config import settings
@@ -12,14 +14,15 @@ def main():
     runtime = NodeRuntime()
     runtime.start()
 
-    app = FastAPI(title=f"DNA Node Agent ({settings.node_id})")
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        task = asyncio.create_task(runtime.run_loop())
+        yield
+        task.cancel()
+
+    app = FastAPI(title=f"DNA Node Agent ({settings.node_id})", lifespan=lifespan)
     app.state.runtime = runtime
     app.include_router(node_router, prefix="/api/v1")
-    
-    import asyncio
-    @app.on_event("startup")
-    async def startup_event():
-        asyncio.create_task(runtime.run_loop())
     
     uvicorn.run(app, host=settings.api_host, port=settings.api_port)
 
