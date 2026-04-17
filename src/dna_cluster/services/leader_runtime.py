@@ -273,7 +273,27 @@ class LeaderRuntime:
                 )
             logger.info(f"Successfully uploaded result for {chunk_id}")
         except Exception as e:
-            logger.error(f"Standby failed to process/upload chunk {chunk_id}: {e}")
+            logger.error(f"Standby failed to process/upload chunk {chunk_id}: {repr(e)}")
+            await self._notify_chunk_failed(leader_url, chunk_id, job_id, e)
+
+    async def _notify_chunk_failed(self, leader_url: str, chunk_id: str, job_id: str, err: Exception):
+        """Best-effort signal to leader so failed chunks are immediately requeued."""
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                await client.post(
+                    f"{leader_url}/api/v1/leader/chunk/fail",
+                    json={
+                        "node_id": settings.node_id,
+                        "chunk_id": chunk_id,
+                        "job_id": job_id,
+                        "error": repr(err),
+                    }
+                )
+            logger.info(f"Reported failed chunk {chunk_id} to leader for retry")
+        except Exception as notify_err:
+            logger.warning(
+                f"Failed to report chunk failure to leader for {chunk_id}: {repr(notify_err)}"
+            )
 
     # ---- Local chunk cache for failover recovery ----
 
@@ -480,6 +500,32 @@ class LeaderRuntime:
                         chunk.assigned_node = None
                         self.store.save(self.state)
 
+    def mark_chunk_retry(self, chunk_id: str, job_id: str, node_id: str, error: Optional[str] = None):
+        """Leader-side handler to immediately requeue a chunk after worker failure."""
+        job = self.state.active_jobs.get(job_id)
+        if not job:
+            return
+        chunk = job.chunks.get(chunk_id)
+        if not chunk:
+            return
+        if chunk.state == ChunkState.COMMITTED:
+            return
+        # Ignore stale failure signals from nodes that do not currently own this chunk.
+        if chunk.assigned_node and chunk.assigned_node != node_id:
+            logger.debug(
+                f"Ignoring stale chunk failure for {chunk_id}: owner={chunk.assigned_node}, sender={node_id}"
+            )
+            return
+
+        chunk.state = ChunkState.RETRY
+        chunk.assigned_node = None
+        chunk.assigned_at = 0.0
+        self.store.save(self.state)
+        logger.warning(
+            f"Chunk {chunk_id} requeued immediately after failure on {node_id}. "
+            f"Reason: {error or 'unspecified'}"
+        )
+
     def register_node(self, node_info):
         node_info.last_seen_at = time.time()
         existing = self.state.nodes.get(node_info.node_id)
@@ -543,6 +589,29 @@ class LeaderRuntime:
         self.state.active_jobs[job_id] = job_info
         self.store.save(self.state)
         logger.info(f"Job {job_id} created with {len(chunks)} chunks.")
+        self._log_initial_job_plan(job_id, chunks)
+
+    def _log_initial_job_plan(self, job_id: str, chunks: list[ChunkInfo]):
+        """Print an initial estimated dispatch plan by node for operator visibility."""
+        now = time.time()
+        eligible_nodes = [
+            n for n in self.state.nodes.values()
+            if not n.is_disabled and (now - n.last_seen_at < 60.0)
+        ]
+        if not eligible_nodes:
+            logger.info(f"Job {job_id} initial plan: no active nodes available yet.")
+            return
+
+        order = sorted(eligible_nodes, key=lambda n: (-self._calculate_node_score(n), n.node_id))
+        per_node: Dict[str, list[str]] = {n.node_id: [] for n in order}
+        for idx, chunk in enumerate(chunks):
+            target = order[idx % len(order)]
+            per_node[target.node_id].append(chunk.chunk_id)
+
+        logger.info(f"Job {job_id} initial dispatch plan (estimated):")
+        for node_id, chunk_ids in per_node.items():
+            if chunk_ids:
+                logger.info(f"  - {node_id}: {len(chunk_ids)} chunks -> {', '.join(chunk_ids)}")
 
     def _calculate_node_score(self, node: NodeInfo) -> int:
         if node.is_disabled: return -1000
@@ -578,6 +647,7 @@ class LeaderRuntime:
                     chunk.assigned_node = node_id
                     chunk.assigned_at = time.time()
                     self.store.save(self.state)
+                    logger.info(f"Dispatching chunk {chunk.chunk_id} (job {job_id}) -> {node_id}")
                     return job_id, chunk
         return None
 

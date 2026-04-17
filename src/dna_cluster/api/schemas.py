@@ -38,6 +38,12 @@ class ChunkResultRequest(BaseModel):
     job_id: str
     result_data: str
 
+class ChunkFailureRequest(BaseModel):
+    node_id: str
+    chunk_id: str
+    job_id: str
+    error: Optional[str] = None
+
 class ChunkUpdateRequest(BaseModel):
     chunk_id: str
     state: str

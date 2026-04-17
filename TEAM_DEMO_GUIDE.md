@@ -69,19 +69,23 @@ LOG_LEVEL=INFO
 ## 🚀 Step 4: The Demo Sequence
 
 ### 1. Wait for Stability (60 Seconds)
+
 The system has a **15-second startup grace period**. Wait one minute until everyone’s terminal shows `Registered node ...`.
 
 ### 2. Verify Cluster Status (Leader only)
+
 The current leader (Sebas) checks the health:
+
 ```bash
 curl http://localhost:8001/api/v1/leader/control/status
 ```
 
 ### 3. Trigger the Job (Leader only)
+
 ```bash
 curl -X POST http://localhost:8001/api/v1/leader/job/create \
      -H "Content-Type: application/json" \
-     -d '{"job_id": "massive_demo_job"}'
+     -d '{"job_id": "procesar_job"}'
 ```
 
 ---

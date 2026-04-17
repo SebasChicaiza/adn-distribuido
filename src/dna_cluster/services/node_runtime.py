@@ -179,7 +179,29 @@ class NodeRuntime:
             logger.info(f"Successfully uploaded {chunk_id}")
             
         except Exception as e:
-            logger.error(f"Failed to process/upload chunk {chunk_id}: {e}")
+            logger.error(f"Failed to process/upload chunk {chunk_id}: {repr(e)}")
+            await self._notify_chunk_failed(chunk_id, job_id, e)
             raise e # If it was a network error during upload, this will drop current_leader_url, which is good.
         finally:
             self.node_info.state = "ready"
+
+    async def _notify_chunk_failed(self, chunk_id: str, job_id: str, err: Exception):
+        """Best-effort signal to leader so failed chunks are immediately requeued."""
+        if not self.current_leader_url:
+            return
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                await client.post(
+                    f"{self.current_leader_url}/api/v1/leader/chunk/fail",
+                    json={
+                        "node_id": self.node_info.node_id,
+                        "chunk_id": chunk_id,
+                        "job_id": job_id,
+                        "error": repr(err),
+                    }
+                )
+            logger.info(f"Reported failed chunk {chunk_id} to leader for retry")
+        except Exception as notify_err:
+            logger.warning(
+                f"Could not report failed chunk {chunk_id} to leader: {repr(notify_err)}"
+            )

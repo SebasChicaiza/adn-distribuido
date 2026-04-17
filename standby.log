@@ -1,0 +1,59 @@
+2026-04-14 07:58:04 [INFO] dna_cluster.services.leader_runtime - Loaded existing state with Leader: node_leader, Term: 1. My ID: node_standby
+2026-04-14 07:58:04 [INFO] dna_cluster.services.leader_runtime - Starting LeaderRuntime. Is Leader: False, Term: 1
+INFO:     Started server process [1130320]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://127.0.0.1:8002 (Press CTRL+C to quit)
+INFO:     127.0.0.1:40250 - "GET /api/v1/status HTTP/1.1" 200 OK
+INFO:     127.0.0.1:40260 - "POST /api/v1/leader/state/sync HTTP/1.1" 200 OK
+INFO:     127.0.0.1:40270 - "POST /api/v1/leader/state/sync HTTP/1.1" 200 OK
+INFO:     127.0.0.1:40286 - "GET /api/v1/status HTTP/1.1" 200 OK
+INFO:     127.0.0.1:44418 - "POST /api/v1/leader/state/sync HTTP/1.1" 200 OK
+INFO:     127.0.0.1:44430 - "GET /api/v1/status HTTP/1.1" 200 OK
+INFO:     127.0.0.1:44440 - "GET /api/v1/status HTTP/1.1" 200 OK
+INFO:     127.0.0.1:44454 - "GET /api/v1/status HTTP/1.1" 200 OK
+INFO:     127.0.0.1:44468 - "GET /api/v1/status HTTP/1.1" 200 OK
+INFO:     127.0.0.1:38662 - "GET /api/v1/status HTTP/1.1" 200 OK
+INFO:     127.0.0.1:38678 - "GET /api/v1/status HTTP/1.1" 200 OK
+INFO:     127.0.0.1:38688 - "GET /api/v1/status HTTP/1.1" 200 OK
+INFO:     127.0.0.1:38690 - "GET /api/v1/status HTTP/1.1" 200 OK
+INFO:     127.0.0.1:38706 - "GET /api/v1/status HTTP/1.1" 200 OK
+INFO:     127.0.0.1:38722 - "GET /api/v1/status HTTP/1.1" 200 OK
+INFO:     127.0.0.1:38732 - "GET /api/v1/status HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51498 - "GET /api/v1/status HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51512 - "GET /api/v1/status HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51516 - "GET /api/v1/status HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51528 - "GET /api/v1/status HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51530 - "GET /api/v1/status HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51542 - "GET /api/v1/status HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51544 - "GET /api/v1/status HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60956 - "GET /api/v1/status HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60962 - "GET /api/v1/status HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60968 - "GET /api/v1/status HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60980 - "GET /api/v1/status HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60986 - "GET /api/v1/status HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60992 - "GET /api/v1/status HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60996 - "GET /api/v1/status HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55236 - "GET /api/v1/status HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55248 - "GET /api/v1/status HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55252 - "GET /api/v1/status HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55256 - "GET /api/v1/status HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55268 - "GET /api/v1/status HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55274 - "GET /api/v1/status HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55276 - "GET /api/v1/status HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54406 - "GET /api/v1/status HTTP/1.1" 200 OK
+2026-04-14 07:59:04 [WARNING] dna_cluster.services.leader_runtime - Leader lease expired! Last heartbeat 49.9s ago.
+2026-04-14 07:59:04 [INFO] dna_cluster.services.leader_runtime - Node node_standby attempting promotion to leader.
+2026-04-14 07:59:04 [INFO] dna_cluster.services.leader_runtime - Promoted to LEADER! New term: 2
+INFO:     127.0.0.1:54410 - "GET /api/v1/status HTTP/1.1" 200 OK
+2026-04-14 07:59:05 [INFO] dna_cluster.api.leader_api - Node registered: node_worker
+2026-04-14 07:59:05 [INFO] dna_cluster.services.leader_runtime - Registered node node_worker
+INFO:     127.0.0.1:54422 - "POST /api/v1/leader/register HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54436 - "POST /api/v1/leader/heartbeat HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54442 - "POST /api/v1/leader/chunk/request_work HTTP/1.1" 200 OK
+2026-04-14 07:59:05 [INFO] dna_cluster.services.leader_runtime - Committed chunk smoke_job_0 for job smoke_job
+2026-04-14 07:59:05 [INFO] dna_cluster.services.leader_runtime - Job smoke_job is complete! Assembling final output...
+2026-04-14 07:59:05 [INFO] dna_cluster.services.leader_runtime - Final output assembled successfully at /home/sebas-chicaiza/adn-distribuido/data_smoke/output/result_smoke_job.fna
+INFO:     127.0.0.1:54446 - "POST /api/v1/leader/chunk/result HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54458 - "GET /api/v1/status HTTP/1.1" 200 OK
+INFO:     Shutting down

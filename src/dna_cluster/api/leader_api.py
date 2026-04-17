@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException, Request
 from dna_cluster.api.schemas import (
     RegisterRequest, ChunkUpdateRequest, JobCreateRequest, 
-    WorkRequest, WorkResponse, ChunkResultRequest, StateSyncRequest,
+    WorkRequest, WorkResponse, ChunkResultRequest, ChunkFailureRequest, StateSyncRequest,
     SetPriorityRequest, SetSchedulerModeRequest
 )
 from dna_cluster.models.node import NodeInfo
@@ -63,6 +63,14 @@ async def chunk_result(req: ChunkResultRequest, request: Request):
         raise HTTPException(status_code=403, detail="Not the leader")
     runtime.commit_chunk_result(req.chunk_id, req.job_id, req.result_data)
     return {"status": "ok"}
+
+@router.post("/chunk/fail")
+async def chunk_fail(req: ChunkFailureRequest, request: Request):
+    runtime = request.app.state.runtime
+    if not hasattr(runtime, "is_leader") or not runtime.is_leader:
+        raise HTTPException(status_code=403, detail="Not the leader")
+    runtime.mark_chunk_retry(req.chunk_id, req.job_id, req.node_id, req.error)
+    return {"status": "retry_queued"}
 
 @router.post("/state/sync")
 async def sync_state(req: StateSyncRequest, request: Request):

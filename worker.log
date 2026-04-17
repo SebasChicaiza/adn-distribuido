@@ -1,0 +1,41 @@
+2026-04-14 07:58:04 [INFO] dna_cluster.services.node_runtime - Starting NodeRuntime for node_worker in worker mode
+2026-04-14 07:58:04 [INFO] dna_cluster.services.node_runtime - Preprocessing complete. Node is ready.
+INFO:     Started server process [1130321]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://127.0.0.1:8003 (Press CTRL+C to quit)
+2026-04-14 07:58:04 [INFO] httpx - HTTP Request: GET http://localhost:8002/api/v1/status "HTTP/1.1 200 OK"
+2026-04-14 07:58:09 [INFO] httpx - HTTP Request: GET http://localhost:8001/api/v1/status "HTTP/1.1 200 OK"
+2026-04-14 07:58:09 [INFO] httpx - HTTP Request: GET http://localhost:8002/api/v1/status "HTTP/1.1 200 OK"
+2026-04-14 07:58:09 [INFO] dna_cluster.services.node_runtime - Found new active leader at http://localhost:8001 (term 1)
+2026-04-14 07:58:09 [INFO] dna_cluster.services.registration - Registering node node_worker to http://localhost:8001
+2026-04-14 07:58:09 [INFO] httpx - HTTP Request: POST http://localhost:8001/api/v1/leader/register "HTTP/1.1 200 OK"
+2026-04-14 07:58:09 [INFO] dna_cluster.services.registration - Successfully registered with leader.
+2026-04-14 07:58:09 [INFO] httpx - HTTP Request: POST http://localhost:8001/api/v1/leader/heartbeat "HTTP/1.1 200 OK"
+2026-04-14 07:58:09 [INFO] httpx - HTTP Request: POST http://localhost:8001/api/v1/leader/chunk/request_work "HTTP/1.1 200 OK"
+2026-04-14 07:58:14 [INFO] httpx - HTTP Request: POST http://localhost:8001/api/v1/leader/heartbeat "HTTP/1.1 200 OK"
+2026-04-14 07:58:14 [INFO] httpx - HTTP Request: POST http://localhost:8001/api/v1/leader/chunk/request_work "HTTP/1.1 200 OK"
+2026-04-14 07:58:14 [INFO] dna_cluster.services.node_runtime - Assigned chunk smoke_job_0 for job smoke_job
+2026-04-14 07:58:14 [INFO] dna_cluster.services.node_runtime - Finished processing smoke_job_0, uploading result to http://localhost:8001...
+2026-04-14 07:58:15 [INFO] httpx - HTTP Request: POST http://localhost:8001/api/v1/leader/chunk/result "HTTP/1.1 200 OK"
+2026-04-14 07:58:15 [INFO] dna_cluster.services.node_runtime - Successfully uploaded smoke_job_0
+2026-04-14 07:58:20 [WARNING] dna_cluster.services.node_runtime - Connection lost to leader http://localhost:8001: All connection attempts failed
+2026-04-14 07:58:25 [INFO] httpx - HTTP Request: GET http://localhost:8002/api/v1/status "HTTP/1.1 200 OK"
+2026-04-14 07:58:30 [INFO] httpx - HTTP Request: GET http://localhost:8002/api/v1/status "HTTP/1.1 200 OK"
+2026-04-14 07:58:35 [INFO] httpx - HTTP Request: GET http://localhost:8002/api/v1/status "HTTP/1.1 200 OK"
+2026-04-14 07:58:40 [INFO] httpx - HTTP Request: GET http://localhost:8002/api/v1/status "HTTP/1.1 200 OK"
+2026-04-14 07:58:45 [INFO] httpx - HTTP Request: GET http://localhost:8002/api/v1/status "HTTP/1.1 200 OK"
+2026-04-14 07:58:50 [INFO] httpx - HTTP Request: GET http://localhost:8002/api/v1/status "HTTP/1.1 200 OK"
+2026-04-14 07:58:55 [INFO] httpx - HTTP Request: GET http://localhost:8002/api/v1/status "HTTP/1.1 200 OK"
+2026-04-14 07:59:00 [INFO] httpx - HTTP Request: GET http://localhost:8002/api/v1/status "HTTP/1.1 200 OK"
+2026-04-14 07:59:05 [INFO] httpx - HTTP Request: GET http://localhost:8002/api/v1/status "HTTP/1.1 200 OK"
+2026-04-14 07:59:05 [INFO] dna_cluster.services.node_runtime - Found new active leader at http://localhost:8002 (term 2)
+2026-04-14 07:59:05 [INFO] dna_cluster.services.registration - Registering node node_worker to http://localhost:8002
+2026-04-14 07:59:05 [INFO] httpx - HTTP Request: POST http://localhost:8002/api/v1/leader/register "HTTP/1.1 200 OK"
+2026-04-14 07:59:05 [INFO] dna_cluster.services.registration - Successfully registered with leader.
+2026-04-14 07:59:05 [INFO] httpx - HTTP Request: POST http://localhost:8002/api/v1/leader/heartbeat "HTTP/1.1 200 OK"
+2026-04-14 07:59:05 [INFO] httpx - HTTP Request: POST http://localhost:8002/api/v1/leader/chunk/request_work "HTTP/1.1 200 OK"
+2026-04-14 07:59:05 [INFO] dna_cluster.services.node_runtime - Assigned chunk smoke_job_0 for job smoke_job
+2026-04-14 07:59:05 [INFO] dna_cluster.services.node_runtime - Finished processing smoke_job_0, uploading result to http://localhost:8002...
+2026-04-14 07:59:05 [INFO] httpx - HTTP Request: POST http://localhost:8002/api/v1/leader/chunk/result "HTTP/1.1 200 OK"
+2026-04-14 07:59:05 [INFO] dna_cluster.services.node_runtime - Successfully uploaded smoke_job_0

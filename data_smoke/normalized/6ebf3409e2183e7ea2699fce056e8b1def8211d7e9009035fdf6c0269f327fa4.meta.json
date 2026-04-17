@@ -1,0 +1,16 @@
+{
+  "headers": [
+    {
+      "offset": 0,
+      "text": ">seq1"
+    },
+    {
+      "offset": 8,
+      "text": ">seq2"
+    }
+  ],
+  "line_lengths": [
+    8,
+    4
+  ]
+}

@@ -1,0 +1,30 @@
+2026-04-14 07:58:04 [INFO] dna_cluster.services.leader_runtime - Initial startup. Highest priority node in config: node_leader (Prio: 100). My ID: node_leader
+2026-04-14 07:58:04 [INFO] dna_cluster.services.leader_runtime - Starting LeaderRuntime. Is Leader: True, Term: 1
+INFO:     Started server process [1130319]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://127.0.0.1:8001 (Press CTRL+C to quit)
+2026-04-14 07:58:04 [INFO] httpx - HTTP Request: POST http://localhost:8002/api/v1/leader/state/sync "HTTP/1.1 200 OK"
+INFO:     127.0.0.1:39056 - "GET /api/v1/status HTTP/1.1" 200 OK
+2026-04-14 07:58:09 [INFO] httpx - HTTP Request: POST http://localhost:8002/api/v1/leader/state/sync "HTTP/1.1 200 OK"
+2026-04-14 07:58:09 [INFO] dna_cluster.api.leader_api - Node registered: node_worker
+2026-04-14 07:58:09 [INFO] dna_cluster.services.leader_runtime - Registered node node_worker
+INFO:     127.0.0.1:39060 - "POST /api/v1/leader/register HTTP/1.1" 200 OK
+INFO:     127.0.0.1:39072 - "POST /api/v1/leader/heartbeat HTTP/1.1" 200 OK
+INFO:     127.0.0.1:39084 - "POST /api/v1/leader/chunk/request_work HTTP/1.1" 200 OK
+INFO:     127.0.0.1:39090 - "GET /api/v1/leader/control/status HTTP/1.1" 200 OK
+INFO:     127.0.0.1:39092 - "GET /api/v1/leader/control/status HTTP/1.1" 200 OK
+2026-04-14 07:58:14 [INFO] dna_cluster.services.leader_runtime - Creating job smoke_job
+2026-04-14 07:58:14 [INFO] dna_cluster.services.leader_runtime - Job smoke_job created with 1 chunks.
+INFO:     127.0.0.1:39104 - "POST /api/v1/leader/job/create HTTP/1.1" 200 OK
+2026-04-14 07:58:14 [INFO] httpx - HTTP Request: POST http://localhost:8002/api/v1/leader/state/sync "HTTP/1.1 200 OK"
+INFO:     127.0.0.1:42322 - "POST /api/v1/leader/heartbeat HTTP/1.1" 200 OK
+INFO:     127.0.0.1:42336 - "POST /api/v1/leader/chunk/request_work HTTP/1.1" 200 OK
+2026-04-14 07:58:15 [INFO] dna_cluster.services.leader_runtime - Committed chunk smoke_job_0 for job smoke_job
+2026-04-14 07:58:15 [INFO] dna_cluster.services.leader_runtime - Job smoke_job is complete! Assembling final output...
+2026-04-14 07:58:15 [INFO] dna_cluster.services.leader_runtime - Final output assembled successfully at /home/sebas-chicaiza/adn-distribuido/data_smoke/output/result_smoke_job.fna
+INFO:     127.0.0.1:42348 - "POST /api/v1/leader/chunk/result HTTP/1.1" 200 OK
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [1130319]
