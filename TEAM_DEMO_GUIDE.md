@@ -88,6 +88,39 @@ curl -X POST http://localhost:8001/api/v1/leader/job/create \
      -d '{"job_id": "procesar_job"}'
 ```
 
+### 4. Optional: Route All New Work to David (Leader only)
+
+Use this while the app is running (open a second terminal). This sets scheduler mode to **pin_single_node** and sends all **new chunk assignments** to `node_david`.
+
+```bash
+curl -X POST http://localhost:8001/api/v1/leader/control/set_scheduler_mode \
+  -H "Content-Type: application/json" \
+  -d '{"mode":"pin_single_node","pinned_node_id":"node_david"}'
+```
+
+Verify that the mode was applied:
+
+```bash
+curl http://localhost:8001/api/v1/leader/control/status
+```
+
+You should see:
+- `"scheduler_mode":"pin_single_node"`
+- `"pinned_node_id":"node_david"`
+
+Important behavior:
+- This setting is **global** on the leader, not per `job_id`.
+- If multiple jobs are running, all of them are affected.
+- Chunks already assigned before the change may still finish on their current nodes.
+
+To return to normal balancing:
+
+```bash
+curl -X POST http://localhost:8001/api/v1/leader/control/set_scheduler_mode \
+  -H "Content-Type: application/json" \
+  -d '{"mode":"balanced"}'
+```
+
 ---
 
 ## 💥 Step 5: Chaos Testing (Failover)
