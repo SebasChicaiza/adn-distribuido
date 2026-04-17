@@ -61,7 +61,7 @@ LOG_LEVEL=INFO
    ```
 3. **Start the System (Everyone)**:
    ```bash
-   python -m dna_cluster.cli.run_manager
+   python -m dna_cluster.cli.run_manager --clean
    ```
 
 ---
@@ -85,7 +85,7 @@ curl http://localhost:8001/api/v1/leader/control/status
 ```bash
 curl -X POST http://localhost:8001/api/v1/leader/job/create \
      -H "Content-Type: application/json" \
-     -d '{"job_id": "procesar_job"}'
+     -d '{"job_id": "procesar_job_FULL"}'
 ```
 
 ### 4. Optional: Route All New Work to David (Leader only)
@@ -105,10 +105,12 @@ curl http://localhost:8001/api/v1/leader/control/status
 ```
 
 You should see:
+
 - `"scheduler_mode":"pin_single_node"`
 - `"pinned_node_id":"node_david"`
 
 Important behavior:
+
 - This setting is **global** on the leader, not per `job_id`.
 - If multiple jobs are running, all of them are affected.
 - Chunks already assigned before the change may still finish on their current nodes.

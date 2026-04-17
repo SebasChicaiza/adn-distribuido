@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Optional, Tuple, Dict
 from dna_cluster.models.cluster import ClusterState
 from dna_cluster.models.node import NodeInfo
-from dna_cluster.models.job import JobInfo
+from dna_cluster.models.job import JobInfo, ChunkMetric
 from dna_cluster.models.chunk import ChunkState, ChunkInfo
 from dna_cluster.storage.state_store import StateStore
 from dna_cluster.storage.paths import StoragePaths
@@ -24,6 +24,20 @@ from dna_cluster.services.heartbeat import send_heartbeat
 logger = logging.getLogger(__name__)
 
 class LeaderRuntime:
+    @staticmethod
+    def _compute_chunk_metric(result_data: str) -> ChunkMetric:
+        # '+' means base match; '.' means mismatch (or padding); 'N'/'n' are unknowns from A.
+        matches = result_data.count("+")
+        unknown_upper = result_data.count("N")
+        unknown_lower = result_data.count("n")
+        unknown = unknown_upper + unknown_lower
+        evaluable = max(0, len(result_data) - unknown)
+        return ChunkMetric(matches=matches, evaluable_bases=evaluable, unknown_bases=unknown)
+
+    @staticmethod
+    def _compatibility_pct(matches: int, evaluable: int) -> float:
+        return round((matches / evaluable) * 100, 3) if evaluable else 0.0
+
     def __init__(self):
         self.store = StateStore()
         self.state = self.store.load() or ClusterState()
@@ -712,10 +726,28 @@ class LeaderRuntime:
         chunk_file_path = parts_dir / f"{chunk_id}.res"
         with open(chunk_file_path, "w", encoding="utf-8") as f:
             f.write(result_data)
+
+        # Maintain idempotent running compatibility metrics per job.
+        prev_metric = job.chunk_metrics.get(chunk_id)
+        if prev_metric:
+            job.matches_total = max(0, job.matches_total - prev_metric.matches)
+            job.evaluable_bases_total = max(0, job.evaluable_bases_total - prev_metric.evaluable_bases)
+            job.unknown_bases_total = max(0, job.unknown_bases_total - prev_metric.unknown_bases)
+
+        new_metric = self._compute_chunk_metric(result_data)
+        job.chunk_metrics[chunk_id] = new_metric
+        job.matches_total += new_metric.matches
+        job.evaluable_bases_total += new_metric.evaluable_bases
+        job.unknown_bases_total += new_metric.unknown_bases
         
         chunk.state = ChunkState.COMMITTED
         self.store.save(self.state)
-        logger.info(f"Committed chunk {chunk_id} for job {job_id}")
+        compat_pct = self._compatibility_pct(job.matches_total, job.evaluable_bases_total)
+        logger.info(
+            f"Committed chunk {chunk_id} for job {job_id}. "
+            f"Compatibility so far: {compat_pct:.3f}% "
+            f"({job.matches_total}/{job.evaluable_bases_total} evaluable bases)"
+        )
 
         self._check_job_completion(job_id)
 

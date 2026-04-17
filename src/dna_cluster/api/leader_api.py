@@ -127,6 +127,10 @@ async def control_status(request: Request):
             "in_progress": assigned,
             "progress_pct": round(committed / total * 100, 1) if total else 0,
             "effective_progress_pct": round(committed_parts_present / total * 100, 1) if total else 0,
+            "compatibility_pct": round((job.matches_total / job.evaluable_bases_total) * 100, 3) if job.evaluable_bases_total else 0.0,
+            "matches_total": job.matches_total,
+            "evaluable_bases_total": job.evaluable_bases_total,
+            "unknown_bases_total": job.unknown_bases_total,
         }
     
     return {
