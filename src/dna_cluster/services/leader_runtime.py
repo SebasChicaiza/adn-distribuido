@@ -329,10 +329,52 @@ class LeaderRuntime:
             return path.read_text(encoding="utf-8")
         return None
 
+    @staticmethod
+    def _get_parts_dir(job_id: str) -> Path:
+        return StoragePaths.get_output_dir() / "parts" / job_id
+
+    @classmethod
+    def _get_result_part_path(cls, job_id: str, chunk_id: str) -> Path:
+        return cls._get_parts_dir(job_id) / f"{chunk_id}.res"
+
+    @classmethod
+    def _has_result_part(cls, job_id: str, chunk_id: str) -> bool:
+        return cls._get_result_part_path(job_id, chunk_id).exists()
+
+    def _reconcile_missing_committed_parts(self, job_id: str) -> int:
+        """
+        Ensure COMMITTED state means result file exists on this leader.
+        Missing files are downgraded to RETRY so they can be recovered/reprocessed.
+        Returns number of chunks requeued.
+        """
+        job = self.state.active_jobs.get(job_id)
+        if not job or job.state != "running":
+            return 0
+
+        requeued = 0
+        for chunk in job.chunks.values():
+            if chunk.state == ChunkState.COMMITTED and not self._has_result_part(job_id, chunk.chunk_id):
+                chunk.state = ChunkState.RETRY
+                chunk.assigned_node = None
+                chunk.assigned_at = 0.0
+                requeued += 1
+
+        if requeued:
+            self.store.save(self.state)
+            logger.warning(
+                f"Requeued {requeued} committed chunks without local result files for job {job_id}."
+            )
+        return requeued
+
     async def _recover_chunks_from_nodes(self):
         """After becoming leader, ask all known nodes for cached chunk results."""
         if not self.state.active_jobs:
             return
+        # First, normalize impossible states (COMMITTED with missing .res on this leader).
+        for job_id, job in self.state.active_jobs.items():
+            if job.state == "running":
+                self._reconcile_missing_committed_parts(job_id)
+
         # Collect chunks that need recovery (not COMMITTED)
         needed: Dict[str, set] = {}
         for job_id, job in self.state.active_jobs.items():
@@ -373,6 +415,12 @@ class LeaderRuntime:
                                     logger.info(f"Recovered chunk {chunk_id} from {node_info['node_id']}")
                 except Exception as e:
                     logger.debug(f"Failed to recover chunks from {node_info['node_id']}: {e}")
+
+        unresolved = {jid: len(chunks) for jid, chunks in needed.items() if chunks}
+        if unresolved:
+            logger.warning(
+                f"Recovery from node caches incomplete. Remaining chunks will be recomputed: {unresolved}"
+            )
 
     def _check_lease(self):
         now = time.time()
@@ -675,11 +723,36 @@ class LeaderRuntime:
         job = self.state.active_jobs.get(job_id)
         if not job:
             return
+
+        # Before completion, enforce strong consistency between state and stored results.
+        # This handles leader failover where state can be replicated but result files are not.
+        self._reconcile_missing_committed_parts(job_id)
+        job = self.state.active_jobs.get(job_id)
+        if not job:
+            return
         
         all_committed = all(c.state == ChunkState.COMMITTED for c in job.chunks.values())
         if all_committed:
+            # Guardrail: even if states are committed, assembly requires every part file.
+            missing_parts = [
+                c.chunk_id for c in job.chunks.values()
+                if not self._has_result_part(job_id, c.chunk_id)
+            ]
+            if missing_parts:
+                logger.warning(
+                    f"Job {job_id} has {len(missing_parts)} missing result files before assembly. "
+                    "Requeueing those chunks."
+                )
+                for chunk_id in missing_parts:
+                    chunk = job.chunks[chunk_id]
+                    chunk.state = ChunkState.RETRY
+                    chunk.assigned_node = None
+                    chunk.assigned_at = 0.0
+                self.store.save(self.state)
+                return
+
             logger.info(f"Job {job_id} is complete! Assembling final output...")
-            parts_dir = StoragePaths.get_output_dir() / "parts" / job_id
+            parts_dir = self._get_parts_dir(job_id)
             _, meta_path = FastaPreprocessor.preprocess(settings.input_a_path)
             output_path = StoragePaths.get_output_dir() / f"result_{job_id}.fna"
             

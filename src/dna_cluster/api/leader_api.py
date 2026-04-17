@@ -112,13 +112,21 @@ async def control_status(request: Request):
         committed = sum(1 for c in job.chunks.values() if c.state == "committed")
         pending = sum(1 for c in job.chunks.values() if c.state in ("pending", "retry"))
         assigned = sum(1 for c in job.chunks.values() if c.state in ("assigned", "in_progress"))
+        committed_parts_present = sum(
+            1 for c in job.chunks.values()
+            if c.state == "committed" and runtime._has_result_part(job_id, c.chunk_id)
+        )
+        missing_committed_parts = committed - committed_parts_present
         jobs_summary[job_id] = {
             "state": job.state,
             "total_chunks": total,
             "committed": committed,
+            "committed_parts_present": committed_parts_present,
+            "missing_committed_parts": missing_committed_parts,
             "pending": pending,
             "in_progress": assigned,
             "progress_pct": round(committed / total * 100, 1) if total else 0,
+            "effective_progress_pct": round(committed_parts_present / total * 100, 1) if total else 0,
         }
     
     return {
